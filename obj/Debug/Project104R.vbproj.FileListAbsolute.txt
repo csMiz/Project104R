@@ -1,0 +1,15 @@
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\Project104R.exe.config
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\Project104R.exe
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\Project104R.pdb
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\Project104R.xml
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\System.Numerics.Vectors.dll
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\System.Numerics.Vectors.xml
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.vbprojAssemblyReference.cache
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.Form1.resources
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.Resources.resources
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.vbproj.GenerateResource.cache
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.vbproj.CoreCompileInputs.cache
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.vbproj.CopyComplete
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.exe
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.xml
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.pdb

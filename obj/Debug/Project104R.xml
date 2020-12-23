@@ -1,0 +1,52 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+Project104R
+</name>
+</assembly>
+<members>
+<member name="T:Project104R.My.Resources.Resources">
+<summary>
+  A strongly-typed resource class, for looking up localized strings, etc.
+</summary>
+</member>
+<member name="P:Project104R.My.Resources.Resources.ResourceManager">
+<summary>
+  Returns the cached ResourceManager instance used by this class.
+</summary>
+</member>
+<member name="P:Project104R.My.Resources.Resources.Culture">
+<summary>
+  Overrides the current thread's CurrentUICulture property for all
+  resource lookups using this strongly typed resource class.
+</summary>
+</member>
+<member name="T:Project104R.LinearTween">
+ <summary>
+ (0,0), anchor1, anchor2, (1,1)
+ </summary>
+</member>
+<member name="F:Project104R.KeyFrame.Frame">
+ <summary>
+ 时间轴
+ </summary>
+</member>
+<member name="M:Project104R.RayTracer.RTPixel_BlinnPhong(Project104R.RTRay,System.Int32,System.Boolean)">
+ <summary>
+ ray tracing
+ </summary>
+ <param name="rayIn"></param>
+ <param name="useAABB"></param>
+ <returns></returns>
+</member>
+<member name="M:Project104R.RayTracer.PTPixel(Project104R.RTRay,System.Int32,System.Boolean)">
+ <summary>
+ path tracing
+ </summary>
+ <param name="rayIn"></param>
+ <param name="useAABB"></param>
+ <returns></returns>
+</member>
+</members>
+</doc>
