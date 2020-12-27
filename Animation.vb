@@ -89,10 +89,22 @@ Public Class MorphAnimation
 
     Public CurrentFrame As Integer = 0
 
+    Public Function Left(Optional axis As Single = 0.0F) As MorphAnimation
+        Dim result As New MorphAnimation
+        result.AnimationName = Me.AnimationName & "_Left"
+        For Each head As KeyFrameVertex In Me.KeyFrames
+            If ObjLoader.VtxRepo(head.VtxIdx).X < 0 Then
+                result.AddKeyFrame(head)
+            End If
+        Next
+        Return result
+    End Function
+
     Public Sub ApplyAnimation()
         For Each head As KeyFrameVertex In Me.KeyFrames
             Dim vtxIdx As Integer = head.VtxIdx
             Dim nextKf As KeyFrameVertex = head
+            Dim tail As KeyFrameVertex = Nothing
             While (True)
                 If nextKf.Frame > CurrentFrame Then
                     Exit While
@@ -100,14 +112,15 @@ Public Class MorphAnimation
                 If nextKf.NextKeyFrame IsNot Nothing Then
                     nextKf = nextKf.NextKeyFrame
                 Else
+                    tail = nextKf
                     nextKf = Nothing
                     Exit While
                 End If
             End While
             If nextKf Is Nothing Then
-                Dim pos_offset As Vector3 = head.Position
-                Dim norm_offset As Vector3 = head.Normal
-                Dim tex_offset As Vector2 = head.TexCoord
+                Dim pos_offset As Vector3 = tail.Position
+                Dim norm_offset As Vector3 = tail.Normal
+                Dim tex_offset As Vector2 = tail.TexCoord
                 ObjLoader.VtxRepo(vtxIdx) += pos_offset
                 ObjLoader.NormalRepo(vtxIdx) += norm_offset
                 ObjLoader.TexCoordRepo(vtxIdx) += tex_offset
@@ -130,6 +143,7 @@ Public Class MorphAnimation
                     ObjLoader.TexCoordRepo(vtxIdx) += tex_offset
                 End If
             End If
+            ObjLoader.NormalRepo(vtxIdx) = Vector3.Normalize(ObjLoader.NormalRepo(vtxIdx))
         Next
     End Sub
 

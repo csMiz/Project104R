@@ -32,6 +32,143 @@ Project104R
  时间轴
  </summary>
 </member>
+<member name="M:Project104R.Rasterizer.LoadAllImageResources(SharpDX.Direct2D1.DeviceContext,SharpDX.Direct3D11.Device1)">
+ <summary>
+ read all images from the directory
+ </summary>
+ <param name="context">D2D_DeviceContext / RenderTarget</param>
+ <param name="device">D3D_Device</param>
+</member>
+<member name="M:Project104R.Rasterizer.UpdateAllImageResources(SharpDX.Direct2D1.DeviceContext,SharpDX.Direct3D11.Device1)">
+ <summary>
+ reload all images after device/context changed. need renderingLock = 2
+ </summary>
+ <param name="context">D2D_DeviceContext / RenderTarget</param>
+ <param name="device">D3D_Device</param>
+</member>
+<member name="M:Project104R.Rasterizer.LoadBitmapFromSysBitmap(SharpDX.Direct2D1.RenderTarget,System.Drawing.Bitmap)">
+ <summary>
+ convert system.drawing.bitmap to d2dbitmap
+ </summary>
+ <param name="rt">render target == d2dContext</param>
+ <param name="drawingBitmap">system.drawing.bitmap</param>
+</member>
+<member name="M:Project104R.Rasterizer.LoadBitmapUsingWIC(SharpDX.Direct2D1.DeviceContext,System.String)">
+ <summary>
+ use WIC to load image resources
+ </summary>
+ <param name="context">d2dContext</param>
+ <param name="filePath">image path</param>
+</member>
+<member name="M:Project104R.Rasterizer.LoadBitmapUsingWIC(SharpDX.Direct2D1.DeviceContext,System.IO.Stream)">
+ <summary>
+ use WIC to load image resources
+ </summary>
+ <param name="context">d2dContext</param>
+ <param name="readStream">image stream</param>
+</member>
+<member name="M:Project104R.Rasterizer.GetSysBitmapFromBitmap1(SharpDX.Direct2D1.DeviceContext,SharpDX.Direct2D1.Bitmap1)">
+ <summary>
+ convert bitmap1 to system.drawing.bitmap
+ </summary>
+ <param name="context">d2dContext</param>
+ <param name="image">direct2d bitmap1</param>
+</member>
+<member name="T:Project104R.RasterizerCamera">
+ <summary>
+ 2d camera class in 3d space
+ </summary>
+</member>
+<member name="F:Project104R.RasterizerCamera.WVP">
+ <summary>
+ 提供给GPU的WVP变换矩阵
+ </summary>
+</member>
+<member name="M:Project104R.RasterizerCamera.DrawContainer3D(SharpDX.Direct3D11.Device1,SharpDX.Direct3D11.DeviceContext1)">
+ <summary>
+ 绘制容器内的三维面，使用D3D11
+ </summary>
+</member>
+<member name="T:Project104R.SpectatorCamera">
+ <summary>
+ spectator
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.CameraFocus">
+ <summary>
+ centre of camera
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.Zoom">
+ <summary>
+ scale. from 0 to 1
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.Resolve">
+ <summary>
+ camera resolution
+ </summary>
+</member>
+<member name="T:Project104R.SpectatorCamera.DDraw">
+ <summary>
+ 定义绘图委托，仅用于D2D
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.PaintingLayers">
+ <summary>
+ 分层绘图，不考虑小窗口穿透的模式，仅用于D2D
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.CurrentCursorX">
+ <summary>
+ 当前鼠标位置
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.D2DContext">
+ <summary>
+ Direct2D 1.1 画布对象
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.D2DTarget">
+ <summary>
+ 用于Direct2d显示的画布
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.BitmapBackgroundCanvas">
+ <summary>
+ D2D空白背景画布
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.D3DRenderImage">
+ <summary>
+ D3D图像
+ </summary>
+</member>
+<member name="F:Project104R.SpectatorCamera.D3DShadowMapImage">
+ <summary>
+ 光栅化渲染时，从光源位置的图像，用来做阴影贴图
+ </summary>
+</member>
+<member name="M:Project104R.SpectatorCamera.DrawLink3DImage(SharpDX.Direct2D1.DeviceContext,Project104R.SpectatorCamera,SharpDX.Direct2D1.Bitmap1)">
+ <summary>
+ 在当前D2D图层直接绘制D3D生成的图像
+ </summary>
+</member>
+<member name="M:Project104R.SpectatorCamera.GetDeviceContext">
+ <summary>
+ 获取D2DDeviceContext
+ </summary>
+</member>
+<member name="M:Project104R.SpectatorCamera.GetCenter">
+ <summary>
+ 获取一半的Resolve值，即屏幕中心
+ </summary>
+</member>
+<member name="M:Project104R.SpectatorCamera.Dispose">
+ <summary>
+ dispose all directx resources
+ </summary>
+</member>
 <member name="M:Project104R.RayTracer.RTPixel_BlinnPhong(Project104R.RTRay,System.Int32,System.Boolean)">
  <summary>
  ray tracing

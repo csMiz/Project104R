@@ -4,6 +4,7 @@ Imports System.Numerics
 Module ObjManager
 
     Public Class ObjFileManager
+        Public ObjFileName As String
         Public MtlFileName As String
         Private CurrentObj As Model
         Private CurrentMat As ModelMaterial
@@ -17,6 +18,7 @@ Module ObjManager
         Public MaxX As Single = -9999, MaxY As Single = -9999, MaxZ As Single = -9999
 
         Public Function ReadObject(path As String, scale As Single) As List(Of Model)
+            ObjFileName = path
             VtxRepo.Clear()
             NormalRepo.Clear()
             TexCoordRepo.Clear()
@@ -78,41 +80,43 @@ Module ObjManager
                                         tmpTexPath = rootFolderPath & tmpTexPath
                                     End If
                                     If Not TextureRepo.ContainsKey(tmpTexPath) Then
-                                            Dim tmpTex As New ModelTexture
-                                            ' read image file
-                                            tmpTex.Name = tmpTexPath
-                                            tmpTex.Path = tmpTexPath
-                                            tmpTex.ReadImage()
-                                            TextureRepo(tmpTexPath) = tmpTex
-                                            tmpMat.DiffuseTexture = tmpTex
-                                        Else
-                                            tmpMat.DiffuseTexture = TextureRepo(tmpTexPath)
-                                        End If
-                                    ElseIf (arg2 = "bump") Then
-                                        Dim tmpTexPath As String = segs2(1)
-                                        If Not TextureRepo.ContainsKey(tmpTexPath) Then
-                                            Dim tmpTex As New ModelTexture
-                                            ' read image file
-                                            tmpTex.Name = tmpTexPath
-                                            tmpTex.Path = tmpTexPath
-                                            tmpTex.ReadImage()
-                                            TextureRepo(tmpTexPath) = tmpTex
-                                            tmpMat.Bump = tmpTex
-                                        Else
-                                            tmpMat.Bump = TextureRepo(tmpTexPath)
-                                        End If
-                                    ElseIf (arg2 = "mz_emissionC") Then
-                                        Dim tmpRed As Single = CSng(segs2(1))
-                                        Dim tmpGreen As Single = CSng(segs2(2))
-                                        Dim tmpBlue As Single = CSng(segs2(3))
-                                        Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
-                                        tmpMat.Emission = tmpC
-                                    ElseIf (arg2 = "mz_emissionV") Then
-                                        Dim tmpValue As Single = CSng(segs2(1))
-                                        tmpMat.EmissionStrength = tmpValue
+                                        Dim tmpTex As New ModelTexture
+                                        ' read image file
+                                        tmpTex.Name = tmpTexPath
+                                        tmpTex.Path = tmpTexPath
+                                        tmpTex.ReadImage()
+                                        TextureRepo(tmpTexPath) = tmpTex
+                                        tmpMat.DiffuseTexture = tmpTex
                                     Else
-                                        'extension here
+                                        tmpMat.DiffuseTexture = TextureRepo(tmpTexPath)
                                     End If
+                                ElseIf (arg2 = "bump") Then
+                                    Dim tmpTexPath As String = segs2(1)
+                                    If Not TextureRepo.ContainsKey(tmpTexPath) Then
+                                        Dim tmpTex As New ModelTexture
+                                        ' read image file
+                                        tmpTex.Name = tmpTexPath
+                                        tmpTex.Path = tmpTexPath
+                                        tmpTex.ReadImage()
+                                        TextureRepo(tmpTexPath) = tmpTex
+                                        tmpMat.Bump = tmpTex
+                                    Else
+                                        tmpMat.Bump = TextureRepo(tmpTexPath)
+                                    End If
+                                ElseIf (arg2 = "mz_emissionC") Then
+                                    Dim tmpRed As Single = CSng(segs2(1))
+                                    Dim tmpGreen As Single = CSng(segs2(2))
+                                    Dim tmpBlue As Single = CSng(segs2(3))
+                                    Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
+                                    tmpMat.Emission = tmpC
+                                ElseIf (arg2 = "mz_emissionV") Then
+                                    Dim tmpValue As Single = CSng(segs2(1))
+                                    tmpMat.EmissionStrength = tmpValue
+                                ElseIf (arg2 = "mz_isTrans") Then
+                                    tmpMat.MarkAsTransparent = True
+                                Else
+                                    'extension here
+                                End If
                             End While
                         End Using
                         f2.Close()
@@ -159,6 +163,11 @@ Module ObjManager
                         Dim f_args As String()() = {segs(1).Split("/"), segs(2).Split("/"), segs(3).Split("/")}
                         Dim pos_idx As Integer() = {CInt(f_args(0)(0)) - 1, CInt(f_args(1)(0)) - 1, CInt(f_args(2)(0)) - 1}
                         Dim nor_idx As Integer() = {CInt(f_args(0)(2)) - 1, CInt(f_args(1)(2)) - 1, CInt(f_args(2)(2)) - 1}
+
+                        'clockwise correction
+                        'Dim v1 As Vector3 = VtxRepo(pos_idx(1)) - VtxRepo(pos_idx(0))
+                        'Dim v2 As Vector3 = VtxRepo(pos_idx(2)) - VtxRepo(pos_idx(0))
+
                         Dim tmpTri As ModelPoly = New ModelPoly()
                         With tmpTri
                             .VtxIdx = pos_idx
@@ -244,14 +253,18 @@ Public Class ModelMaterial
     Public Specular As New Vector3(1.0F)
     Public SpecularStrength As Single = 1.0F
     Public SpecularExponent As Single = 10.0F
+
+    Public IOR As Single = 1.0F
+    Public Bump As ModelTexture = Nothing
+
+    ' =============自定义================
     Public ReflectStrength As Single = 0.5F
     Public RefractStrength As Single = 0.0F
-    Public IOR As Single = 1.0F
     Public Emission As New Vector3(1.0F)
     Public EmissionStrength As Single = 0.0F
     Public EmissionTexture As ModelTexture = Nothing
 
-    Public Bump As ModelTexture = Nothing
+    Public MarkAsTransparent As Boolean = False
 
 End Class
 
@@ -262,10 +275,31 @@ Public Class ModelTexture
 
     Private TextureBitmap As Bitmap = Nothing
     Private TextureSize As Vector2
+    Private TransparentCheckFlag As Boolean = False
+    Private TransparentCheckResult As Boolean = False
 
     Private TextureLock As New Object
 
     Private Shared PIXEL_OFFSET As Vector2 = New Vector2(0.5)
+
+    <Obsolete("太慢了", False)>
+    Public Function HasTransparent() As Boolean
+        If Not TransparentCheckFlag Then
+            TransparentCheckResult = False
+            For j = 0 To TextureSize.Y - 1
+                For i = 0 To TextureSize.X - 1
+                    Dim color As Color = TextureBitmap.GetPixel(i, j)
+                    If color.A < 255 Then
+                        TransparentCheckResult = True
+                        GoTo check_finish
+                    End If
+                Next
+            Next
+check_finish:
+            TransparentCheckFlag = True
+        End If
+        Return TransparentCheckResult
+    End Function
 
     Public Sub ReadImage()
         If TextureBitmap IsNot Nothing Then TextureBitmap.Dispose()

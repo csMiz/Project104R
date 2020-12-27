@@ -5,7 +5,7 @@ Module RayTracer
     Public Rand As New Random
 
     Public ObjLoader As New ObjFileManager
-    'Public ObjLoader_MA As ObjFileManager
+    Public ObjLoader_src As ObjFileManager = Nothing
 
     Public ModelRepository As New List(Of Model)
     Public LightRepository As New List(Of RTLight)
@@ -18,8 +18,8 @@ Module RayTracer
 
     Public F_ImageWidth As Single = 1.0F
     Public F_ImageHeight As Single = 0.75F
-    Public ImageWidth As Integer = 200
-    Public ImageHeight As Integer = 150
+    Public ImageWidth As Integer = 800
+    Public ImageHeight As Integer = 600
 
     Public ACME_THRESHOLD As Single = 0.01
     Public EDGE_WIDTH As Single = 0.02

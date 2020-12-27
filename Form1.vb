@@ -34,22 +34,18 @@ Public Class Form1
         '    .Strength = 50000.0F,
         '    .LightMaterial = "s_light2"})
 
-        'Dim ran As New Random
-        'Dim maxTheta As Single = 0.0F    ' should be 0.577
-        'For i = 0 To 100
-        '    Dim e1 As Single = Math.Acos((ran.NextDouble * 2.0 - 1.0) * 0.166)
-        '    Dim e2 As Single = (ran.NextDouble * 0.166 + 0.25 - 0.083) * 2 * Math.PI
-        '    Dim x As Single = Math.Sin(e1) * Math.Cos(e2)
-        '    Dim y As Single = Math.Sin(e1) * Math.Sin(e2)
-        '    Dim z As Single = Math.Cos(e1)
-        '    Dim vec As Vector3 = Vector3.Normalize(New Vector3(x, y, z))
-        '    Dim theta As Single = {Math.Abs(x / y), Math.Abs(z / y)}.Max
-        '    If theta > maxTheta Then
-        '        maxTheta = theta
-        '    End If
-        '    Console.WriteLine(vec.ToString)
-        'Next
-        'Console.WriteLine(maxTheta.ToString)
+        'Dim lightPos As SharpDX.Vector3 = New SharpDX.Vector3(200, 30, 200)
+        'Dim targetPos As SharpDX.Vector3 = New SharpDX.Vector3(0, 30, 0)
+        'Dim lightWVP As SharpDX.Matrix = RasterizerCamera.CalculateWVP_LookAt(lightPos, targetPos)
+        'Dim inputMat As SharpDX.Matrix = New SharpDX.Matrix(0)
+        'With inputMat
+        '    .M11 = 0
+        '    .M21 = 30
+        '    .M31 = 0
+        '    .M41 = 1
+        'End With
+        'Dim resultMat As SharpDX.Matrix = lightWVP * inputMat
+        'Console.WriteLine(resultMat.M11 & "  " & resultMat.M21 & "  " & resultMat.M31 & "  " & resultMat.M41)
 
 
     End Sub
@@ -104,11 +100,22 @@ Public Class Form1
                         PostMsg(obj.Name)
                     Next
                 Case "ra"
-
+                    If Spectator Is Nothing Then
+                        InitializeRasterizer()
+                    End If
+                    RasterizerUpdateModels()
+                    TimerStartAt = DateTime.Now
+                    Spectator.PaintImage()
+                    Dim tEnd As Date = DateTime.Now
+                    PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
                 Case "cls"
-
+                    TBox1.Text = ""
                 Case "reset"
 
+                Case "prema"
+                    ObjLoader_src = ObjLoader
+                    ObjLoader = New ObjFileManager
+                    ObjLoader.ReadObject(ObjLoader_src.ObjFileName, 1.0)
                 Case "aabb"
                     GenerateAABB()
                 Case "caabb"
@@ -177,8 +184,11 @@ Public Class Form1
                         anim.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\testMA.xml")
                     End If
                 Case "test"
-                    MorphAnimationRepository.Values(0).CurrentFrame = 50
-                    MorphAnimationRepository.Values(0).ApplyAnimation()
+                    'MorphAnimationRepository.Values(0).CurrentFrame = 50
+                    'MorphAnimationRepository.Values(0).ApplyAnimation()
+
+                    'GenerateRandomTexture(Spectator.GetGlobalDevice, Spectator.GetDeviceContext)
+                    'PBox.Image = RasterizerRandomTexture_sys
 
 
             End Select
@@ -212,6 +222,10 @@ Public Class Form1
                         TSPB1.Value = Math.Floor((i + 1) * 100.0 / maxSample)
                         Application.DoEvents()
                     Next
+                Case "ma_clip_left"
+                    Dim anim As MorphAnimation = MorphAnimationRepository(args(1))
+                    Dim anim2 As MorphAnimation = anim.Left
+                    anim2.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\leftMA.xml")
 
             End Select
         ElseIf argCount = 3 Then
@@ -219,6 +233,10 @@ Public Class Form1
                 Case "size"
                     ImageWidth = CInt(args(1))
                     ImageHeight = CInt(args(2))
+                Case "setma"
+                    MorphAnimationRepository(args(1)).CurrentFrame = CInt(args(2))
+                    MorphAnimationRepository(args(1)).ApplyAnimation()
+
 
             End Select
         ElseIf argCount = 4 Then
@@ -299,7 +317,5 @@ Public Class Form1
         PostMsg(pos_str)
 
     End Sub
-
-
 
 End Class
