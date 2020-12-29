@@ -3,206 +3,248 @@ Imports System.Numerics
 
 Module ObjManager
 
-    Public Class ObjFileManager
-        Public ObjFileName As String
-        Public MtlFileName As String
-        Private CurrentObj As Model
-        Private CurrentMat As ModelMaterial
-        Public VtxRepo As New Dictionary(Of Integer, Vector3)
-        Public NormalRepo As New Dictionary(Of Integer, Vector3)
-        Public TexCoordRepo As New Dictionary(Of Integer, Vector2)
-        Public MatRepo As New Dictionary(Of String, ModelMaterial)
-        Public TextureRepo As New Dictionary(Of String, ModelTexture)
-
-        Public MinX As Single = 9999, MinY As Single = 9999, MinZ As Single = 9999
-        Public MaxX As Single = -9999, MaxY As Single = -9999, MaxZ As Single = -9999
-
-        Public Function ReadObject(path As String, scale As Single) As List(Of Model)
-            ObjFileName = path
-            VtxRepo.Clear()
-            NormalRepo.Clear()
-            TexCoordRepo.Clear()
-            MatRepo.Clear()
-            TextureRepo.Clear()
-            MtlFileName = ""
-            CurrentObj = Nothing
-            CurrentMat = Nothing
-
-            Dim objs As New List(Of Model)
-            Dim file As New FileStream(path, FileMode.Open)
-            Using sr As New StreamReader(file)
-                While Not sr.EndOfStream
-                    Dim str As String = sr.ReadLine.Replace("  ", " ")
-                    If (str.Length() < 1) Then Continue While
-                    Dim segs As String() = str.Split()
-                    Dim arg As String = segs(0)
-                    If (arg = "mtllib") Then        ' read materials
-                        MtlFileName = segs(1)
-                        Dim tmpMat As New ModelMaterial
-                        Dim rootFolderPath As String = path.Substring(0, path.Length - path.Split("\").Last.Length)
-                        Dim f2 As New FileStream(rootFolderPath & MtlFileName, FileMode.Open)
-                        Using sr2 As New StreamReader(f2)
-                            While Not sr2.EndOfStream
-                                Dim str2 As String = sr2.ReadLine
-                                str2 = str2.Trim
-                                str2 = str2.Replace(vbTab, "")
-                                If (str2.Length() < 1) Then Continue While
-                                Dim segs2 As String() = str2.Split()
-                                Dim arg2 As String = segs2(0)
-                                If (arg2 = "newmtl") Then
-                                    tmpMat = New ModelMaterial
-                                    tmpMat.Name = segs2(1)
-                                    MatRepo(segs2(1)) = tmpMat
-                                ElseIf (arg2 = "Kd") Then
-                                    Dim tmpRed As Single = CSng(segs2(1))
-                                    Dim tmpGreen As Single = CSng(segs2(2))
-                                    Dim tmpBlue As Single = CSng(segs2(3))
-                                    Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
-                                    tmpMat.Diffuse = tmpC
-                                ElseIf (arg2 = "Ka") Then
-                                    Dim tmpRed As Single = CSng(segs2(1))
-                                    Dim tmpGreen As Single = CSng(segs2(2))
-                                    Dim tmpBlue As Single = CSng(segs2(3))
-                                    Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
-                                    tmpMat.Ambient = tmpC
-                                ElseIf (arg2 = "Ks") Then
-                                    Dim tmpRed As Single = CSng(segs2(1))
-                                    Dim tmpGreen As Single = CSng(segs2(2))
-                                    Dim tmpBlue As Single = CSng(segs2(3))
-                                    Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
-                                    tmpMat.Specular = tmpC
-                                ElseIf (arg2 = "Ns") Then
-                                    Dim tmpValue As Single = CSng(segs2(1))
-                                    tmpMat.SpecularExponent = tmpValue
-                                ElseIf (arg2 = "map_Kd") Then
-                                    Dim tmpTexPath As String = segs2(1)
-                                    If Not tmpTexPath.StartsWith("C") Then
-                                        tmpTexPath = rootFolderPath & tmpTexPath
-                                    End If
-                                    If Not TextureRepo.ContainsKey(tmpTexPath) Then
-                                        Dim tmpTex As New ModelTexture
-                                        ' read image file
-                                        tmpTex.Name = tmpTexPath
-                                        tmpTex.Path = tmpTexPath
-                                        tmpTex.ReadImage()
-                                        TextureRepo(tmpTexPath) = tmpTex
-                                        tmpMat.DiffuseTexture = tmpTex
-                                    Else
-                                        tmpMat.DiffuseTexture = TextureRepo(tmpTexPath)
-                                    End If
-                                ElseIf (arg2 = "bump") Then
-                                    Dim tmpTexPath As String = segs2(1)
-                                    If Not TextureRepo.ContainsKey(tmpTexPath) Then
-                                        Dim tmpTex As New ModelTexture
-                                        ' read image file
-                                        tmpTex.Name = tmpTexPath
-                                        tmpTex.Path = tmpTexPath
-                                        tmpTex.ReadImage()
-                                        TextureRepo(tmpTexPath) = tmpTex
-                                        tmpMat.Bump = tmpTex
-                                    Else
-                                        tmpMat.Bump = TextureRepo(tmpTexPath)
-                                    End If
-                                ElseIf (arg2 = "mz_emissionC") Then
-                                    Dim tmpRed As Single = CSng(segs2(1))
-                                    Dim tmpGreen As Single = CSng(segs2(2))
-                                    Dim tmpBlue As Single = CSng(segs2(3))
-                                    Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
-                                    tmpMat.Emission = tmpC
-                                ElseIf (arg2 = "mz_emissionV") Then
-                                    Dim tmpValue As Single = CSng(segs2(1))
-                                    tmpMat.EmissionStrength = tmpValue
-                                ElseIf (arg2 = "mz_isTrans") Then
-                                    tmpMat.MarkAsTransparent = True
-                                Else
-                                    'extension here
-                                End If
-                            End While
-                        End Using
-                        f2.Close()
-                        f2.Dispose()
-                    ElseIf (arg = "o") Then
-                        CurrentObj = New Model()
-                        objs.Add(CurrentObj)
-                        CurrentObj.Name = segs(1)
-                    ElseIf (arg = "g") Then
-                        CurrentObj = New Model()
-                        objs.Add(CurrentObj)
-                        For i = 1 To segs.Count - 1
-                            CurrentObj.Name = CurrentObj.Name & segs(i) & "_"
-                        Next
-                    ElseIf (arg = "usemtl") Then
-                        Dim tmpMat As ModelMaterial = MatRepo(segs(1))
-                        CurrentMat = tmpMat
-                    ElseIf (arg = "v") Then
-                        Dim tmpX As Single = CSng(segs(1))
-                        Dim tmpY As Single = CSng(segs(2))
-                        Dim tmpZ As Single = CSng(segs(3))
-                        Dim tmpVec As New Vector3(tmpX * scale, tmpY * scale, tmpZ * scale)
-                        VtxRepo(VtxRepo.Count) = tmpVec
-
-                        If tmpVec.X < MinX Then MinX = tmpVec.X
-                        If tmpVec.Y < MinY Then MinY = tmpVec.Y
-                        If tmpVec.Z < MinZ Then MinZ = tmpVec.Z
-                        If tmpVec.X > MaxX Then MaxX = tmpVec.X
-                        If tmpVec.Y > MaxY Then MaxY = tmpVec.Y
-                        If tmpVec.Z > MaxZ Then MaxZ = tmpVec.Z
-
-                    ElseIf (arg = "vn") Then      ' normals
-                        Dim tmpX As Single = CSng(segs(1))
-                        Dim tmpY As Single = CSng(segs(2))
-                        Dim tmpZ As Single = CSng(segs(3))
-                        Dim tmpNor As New Vector3(tmpX, tmpY, tmpZ)
-                        NormalRepo(NormalRepo.Count) = tmpNor
-                    ElseIf (arg = "vt") Then      ' texCoords
-                        Dim tmpU As Single = CSng(segs(1))
-                        Dim tmpV As Single = CSng(segs(2))
-                        Dim tmpTexCoord As New Vector2(tmpU, 1.0 - tmpV)
-                        TexCoordRepo(TexCoordRepo.Count) = tmpTexCoord
-                    ElseIf (arg = "f") Then
-                        Dim f_args As String()() = {segs(1).Split("/"), segs(2).Split("/"), segs(3).Split("/")}
-                        Dim pos_idx As Integer() = {CInt(f_args(0)(0)) - 1, CInt(f_args(1)(0)) - 1, CInt(f_args(2)(0)) - 1}
-                        Dim nor_idx As Integer() = {CInt(f_args(0)(2)) - 1, CInt(f_args(1)(2)) - 1, CInt(f_args(2)(2)) - 1}
-
-                        'clockwise correction
-                        'Dim v1 As Vector3 = VtxRepo(pos_idx(1)) - VtxRepo(pos_idx(0))
-                        'Dim v2 As Vector3 = VtxRepo(pos_idx(2)) - VtxRepo(pos_idx(0))
-
-                        Dim tmpTri As ModelPoly = New ModelPoly()
-                        With tmpTri
-                            .VtxIdx = pos_idx
-                            .NormalIdx = nor_idx
-                        End With
-                        Dim hasTC As String = f_args(0)(1)
-                        If (hasTC.Trim.Length > 0) Then
-                            Dim tc_idx As Integer() = {CInt(f_args(0)(1)) - 1, CInt(f_args(1)(1)) - 1, CInt(f_args(2)(1)) - 1}
-                            tmpTri.TexCoordIdx = tc_idx
-                        End If
-                        If CurrentMat IsNot Nothing Then
-                            tmpTri.MaterialName = CurrentMat.Name
-                        End If
-                        CurrentObj.Mesh(CurrentObj.Mesh.Count) = tmpTri
-                    Else
-                        ' extension here
+    Public Sub FindVertexInfo(vtxIdx As Integer, models As List(Of Model), ByRef normOut As List(Of Integer), ByRef texOut As List(Of Integer))
+        For Each model As Model In models
+            For Each poly As ModelPoly In model.Mesh.Values
+                For i = 0 To 2
+                    If poly.VtxIdx(i) = vtxIdx Then
+                        normOut.Add(poly.NormalIdx(i))
+                        texOut.Add(poly.TexCoordIdx(i))
                     End If
-                End While
-            End Using
-            file.Close()
-            file.Dispose()
-
-            For i = objs.Count - 1 To 0 Step -1
-                Dim tmpObj As Model = objs(i)
-                If tmpObj.Mesh.Count = 0 Then
-                    objs.RemoveAt(i)
-                End If
+                Next
             Next
-            Return objs
-        End Function
-
-    End Class
+        Next
+    End Sub
 
 
 End Module
+
+Public Class ObjFileManager
+    Public ObjFileName As String
+    Public MtlFileName As String
+    Private CurrentObj As Model
+    Private CurrentMat As ModelMaterial
+    Public VtxRepo As New Dictionary(Of Integer, Vector3)
+    Public NormalRepo As New Dictionary(Of Integer, Vector3)
+    Public TexCoordRepo As New Dictionary(Of Integer, Vector2)
+    Public MatRepo As New Dictionary(Of String, ModelMaterial)
+    Public TextureRepo As New Dictionary(Of String, ModelTexture)
+
+    Public MinX As Single = 9999, MinY As Single = 9999, MinZ As Single = 9999
+    Public MaxX As Single = -9999, MaxY As Single = -9999, MaxZ As Single = -9999
+
+    Public Function Clone() As ObjFileManager
+        Dim res As New ObjFileManager
+        With res
+            .ObjFileName = Me.ObjFileName
+            .MtlFileName = Me.MtlFileName
+            .CurrentObj = Me.CurrentObj
+            .CurrentMat = Me.CurrentMat
+            .MatRepo = Me.MatRepo
+            .TextureRepo = Me.TextureRepo
+            .MinX = Me.MinX
+            .MinY = Me.MinY
+            .MinZ = Me.MinZ
+            .MaxX = Me.MaxX
+            .MaxY = Me.MaxY
+            .MaxZ = Me.MaxZ
+        End With
+        For Each vtx As KeyValuePair(Of Integer, Vector3) In Me.VtxRepo
+            res.VtxRepo(vtx.Key) = New Vector3(vtx.Value.X, vtx.Value.Y, vtx.Value.Z)
+        Next
+        For Each norm As KeyValuePair(Of Integer, Vector3) In Me.NormalRepo
+            res.NormalRepo(norm.Key) = New Vector3(norm.Value.X, norm.Value.Y, norm.Value.Z)
+        Next
+        For Each tex As KeyValuePair(Of Integer, Vector2) In Me.TexCoordRepo
+            res.TexCoordRepo(tex.Key) = New Vector2(tex.Value.X, tex.Value.Y)
+        Next
+
+        Return res
+    End Function
+
+    Public Function ReadObject(path As String, scale As Single) As List(Of Model)
+        ObjFileName = path
+        VtxRepo.Clear()
+        NormalRepo.Clear()
+        TexCoordRepo.Clear()
+        MatRepo.Clear()
+        TextureRepo.Clear()
+        MtlFileName = ""
+        CurrentObj = Nothing
+        CurrentMat = Nothing
+
+        Dim objs As New List(Of Model)
+        Dim file As New FileStream(path, FileMode.Open)
+        Using sr As New StreamReader(file)
+            While Not sr.EndOfStream
+                Dim str As String = sr.ReadLine.Replace("  ", " ")
+                If (str.Length() < 1) Then Continue While
+                Dim segs As String() = str.Split()
+                Dim arg As String = segs(0)
+                If (arg = "mtllib") Then        ' read materials
+                    MtlFileName = segs(1)
+                    Dim tmpMat As New ModelMaterial
+                    Dim rootFolderPath As String = path.Substring(0, path.Length - path.Split("\").Last.Length)
+                    Dim f2 As New FileStream(rootFolderPath & MtlFileName, FileMode.Open)
+                    Using sr2 As New StreamReader(f2)
+                        While Not sr2.EndOfStream
+                            Dim str2 As String = sr2.ReadLine
+                            str2 = str2.Trim
+                            str2 = str2.Replace(vbTab, "")
+                            If (str2.Length() < 1) Then Continue While
+                            Dim segs2 As String() = str2.Split()
+                            Dim arg2 As String = segs2(0)
+                            If (arg2 = "newmtl") Then
+                                tmpMat = New ModelMaterial
+                                tmpMat.Name = segs2(1)
+                                MatRepo(segs2(1)) = tmpMat
+                            ElseIf (arg2 = "Kd") Then
+                                Dim tmpRed As Single = CSng(segs2(1))
+                                Dim tmpGreen As Single = CSng(segs2(2))
+                                Dim tmpBlue As Single = CSng(segs2(3))
+                                Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
+                                tmpMat.Diffuse = tmpC
+                            ElseIf (arg2 = "Ka") Then
+                                Dim tmpRed As Single = CSng(segs2(1))
+                                Dim tmpGreen As Single = CSng(segs2(2))
+                                Dim tmpBlue As Single = CSng(segs2(3))
+                                Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
+                                tmpMat.Ambient = tmpC
+                            ElseIf (arg2 = "Ks") Then
+                                Dim tmpRed As Single = CSng(segs2(1))
+                                Dim tmpGreen As Single = CSng(segs2(2))
+                                Dim tmpBlue As Single = CSng(segs2(3))
+                                Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
+                                tmpMat.Specular = tmpC
+                            ElseIf (arg2 = "Ns") Then
+                                Dim tmpValue As Single = CSng(segs2(1))
+                                tmpMat.SpecularExponent = tmpValue
+                            ElseIf (arg2 = "map_Kd") Then
+                                Dim tmpTexPath As String = segs2(1)
+                                If Not tmpTexPath.StartsWith("C") Then
+                                    tmpTexPath = rootFolderPath & tmpTexPath
+                                End If
+                                If Not TextureRepo.ContainsKey(tmpTexPath) Then
+                                    Dim tmpTex As New ModelTexture
+                                    ' read image file
+                                    tmpTex.Name = tmpTexPath
+                                    tmpTex.Path = tmpTexPath
+                                    tmpTex.ReadImage()
+                                    TextureRepo(tmpTexPath) = tmpTex
+                                    tmpMat.DiffuseTexture = tmpTex
+                                Else
+                                    tmpMat.DiffuseTexture = TextureRepo(tmpTexPath)
+                                End If
+                            ElseIf (arg2 = "bump") Then
+                                Dim tmpTexPath As String = segs2(1)
+                                If Not TextureRepo.ContainsKey(tmpTexPath) Then
+                                    Dim tmpTex As New ModelTexture
+                                    ' read image file
+                                    tmpTex.Name = tmpTexPath
+                                    tmpTex.Path = tmpTexPath
+                                    tmpTex.ReadImage()
+                                    TextureRepo(tmpTexPath) = tmpTex
+                                    tmpMat.Bump = tmpTex
+                                Else
+                                    tmpMat.Bump = TextureRepo(tmpTexPath)
+                                End If
+                            ElseIf (arg2 = "mz_emissionC") Then
+                                Dim tmpRed As Single = CSng(segs2(1))
+                                Dim tmpGreen As Single = CSng(segs2(2))
+                                Dim tmpBlue As Single = CSng(segs2(3))
+                                Dim tmpC As New Vector3(tmpRed, tmpGreen, tmpBlue)
+                                tmpMat.Emission = tmpC
+                            ElseIf (arg2 = "mz_emissionV") Then
+                                Dim tmpValue As Single = CSng(segs2(1))
+                                tmpMat.EmissionStrength = tmpValue
+                            ElseIf (arg2 = "mz_isTrans") Then
+                                tmpMat.MarkAsTransparent = True
+                            Else
+                                'extension here
+                            End If
+                        End While
+                    End Using
+                    f2.Close()
+                    f2.Dispose()
+                ElseIf (arg = "o") Then
+                    CurrentObj = New Model()
+                    objs.Add(CurrentObj)
+                    CurrentObj.Name = segs(1)
+                ElseIf (arg = "g") Then
+                    CurrentObj = New Model()
+                    objs.Add(CurrentObj)
+                    For i = 1 To segs.Count - 1
+                        CurrentObj.Name = CurrentObj.Name & segs(i) & "_"
+                    Next
+                ElseIf (arg = "usemtl") Then
+                    Dim tmpMat As ModelMaterial = MatRepo(segs(1))
+                    CurrentMat = tmpMat
+                ElseIf (arg = "v") Then
+                    Dim tmpX As Single = CSng(segs(1))
+                    Dim tmpY As Single = CSng(segs(2))
+                    Dim tmpZ As Single = CSng(segs(3))
+                    Dim tmpVec As New Vector3(tmpX * scale, tmpY * scale, tmpZ * scale)
+                    VtxRepo(VtxRepo.Count) = tmpVec
+
+                    If tmpVec.X < MinX Then MinX = tmpVec.X
+                    If tmpVec.Y < MinY Then MinY = tmpVec.Y
+                    If tmpVec.Z < MinZ Then MinZ = tmpVec.Z
+                    If tmpVec.X > MaxX Then MaxX = tmpVec.X
+                    If tmpVec.Y > MaxY Then MaxY = tmpVec.Y
+                    If tmpVec.Z > MaxZ Then MaxZ = tmpVec.Z
+
+                ElseIf (arg = "vn") Then      ' normals
+                    Dim tmpX As Single = CSng(segs(1))
+                    Dim tmpY As Single = CSng(segs(2))
+                    Dim tmpZ As Single = CSng(segs(3))
+                    Dim tmpNor As New Vector3(tmpX, tmpY, tmpZ)
+                    NormalRepo(NormalRepo.Count) = tmpNor
+                ElseIf (arg = "vt") Then      ' texCoords
+                    Dim tmpU As Single = CSng(segs(1))
+                    Dim tmpV As Single = CSng(segs(2))
+                    Dim tmpTexCoord As New Vector2(tmpU, 1.0 - tmpV)
+                    TexCoordRepo(TexCoordRepo.Count) = tmpTexCoord
+                ElseIf (arg = "f") Then
+                    Dim f_args As String()() = {segs(1).Split("/"), segs(2).Split("/"), segs(3).Split("/")}
+                    Dim pos_idx As Integer() = {CInt(f_args(0)(0)) - 1, CInt(f_args(1)(0)) - 1, CInt(f_args(2)(0)) - 1}
+                    Dim nor_idx As Integer() = {CInt(f_args(0)(2)) - 1, CInt(f_args(1)(2)) - 1, CInt(f_args(2)(2)) - 1}
+
+                    'clockwise correction
+                    'Dim v1 As Vector3 = VtxRepo(pos_idx(1)) - VtxRepo(pos_idx(0))
+                    'Dim v2 As Vector3 = VtxRepo(pos_idx(2)) - VtxRepo(pos_idx(0))
+
+                    Dim tmpTri As ModelPoly = New ModelPoly()
+                    With tmpTri
+                        .VtxIdx = pos_idx
+                        .NormalIdx = nor_idx
+                    End With
+                    Dim hasTC As String = f_args(0)(1)
+                    If (hasTC.Trim.Length > 0) Then
+                        Dim tc_idx As Integer() = {CInt(f_args(0)(1)) - 1, CInt(f_args(1)(1)) - 1, CInt(f_args(2)(1)) - 1}
+                        tmpTri.TexCoordIdx = tc_idx
+                    End If
+                    If CurrentMat IsNot Nothing Then
+                        tmpTri.MaterialName = CurrentMat.Name
+                    End If
+                    CurrentObj.Mesh(CurrentObj.Mesh.Count) = tmpTri
+                Else
+                    ' extension here
+                End If
+            End While
+        End Using
+        file.Close()
+        file.Dispose()
+
+        For i = objs.Count - 1 To 0 Step -1
+            Dim tmpObj As Model = objs(i)
+            If tmpObj.Mesh.Count = 0 Then
+                objs.RemoveAt(i)
+            End If
+        Next
+        Return objs
+    End Function
+
+End Class
 
 
 Public Class Model

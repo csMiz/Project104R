@@ -59,7 +59,7 @@ Public Class Form1
         End If
     End Sub
 
-    Public Sub RunCmd(line As String)
+    Public Async Sub RunCmd(line As String)
         PostMsg(line)
         Dim args As String() = Regex.Split(line, " ")
         Dim cmd As String = args(0).ToLower
@@ -112,10 +112,11 @@ Public Class Form1
                     TBox1.Text = ""
                 Case "reset"
 
+                Case "resetma"
+                    ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
                 Case "prema"
-                    ObjLoader_src = ObjLoader
-                    ObjLoader = New ObjFileManager
-                    ObjLoader.ReadObject(ObjLoader_src.ObjFileName, 1.0)
+                    ObjLoader_ma_ref.ReadObject(ObjLoader.ObjFileName, 1.0)
+                    ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
                 Case "aabb"
                     GenerateAABB()
                 Case "caabb"
@@ -124,68 +125,19 @@ Public Class Form1
                 Case "pt"
                     RunCmd("pt 100")
                 Case "disparity"
-                    Dim anim As New MorphAnimation
-                    anim.AnimationName = "Animation1"
-
-                    Dim oldRepo As ObjFileManager = ObjLoader
-                    ObjLoader = New ObjFileManager
-                    Dim ofd As New OpenFileDialog With {
-                        .Filter = "Obj File|*.obj",
-                        .RestoreDirectory = True}
-                    If (ofd.ShowDialog = DialogResult.OK) Then
-                        Dim secondModel As New List(Of Model)
-                        secondModel.AddRange(ObjLoader.ReadObject(ofd.FileName, 1.0F))
-
-                        For k = 0 To ModelRepository.Count - 1
-                            Dim targetObj_old As Model = ModelRepository(k)
-                            Dim targetObj_new As Model = secondModel(k)
-                            For Each i In targetObj_old.Mesh.Keys
-                                Dim poly_old As ModelPoly = targetObj_old.Mesh(i)
-                                Dim poly_new As ModelPoly = targetObj_new.Mesh(i)
-                                For j = 0 To 2
-                                    Dim vtx_old As Vector3 = oldRepo.VtxRepo(poly_old.VtxIdx(j))
-                                    Dim vtx_new As Vector3 = ObjLoader.VtxRepo(poly_new.VtxIdx(j))
-                                    Dim vtx_offset As Vector3 = vtx_new - vtx_old
-
-                                    Dim nor_old As Vector3 = oldRepo.NormalRepo(poly_old.NormalIdx(j))
-                                    Dim nor_new As Vector3 = ObjLoader.NormalRepo(poly_new.NormalIdx(j))
-                                    'Dim nor_old_q As Quaternion = Quaternion.CreateFromYawPitchRoll()    '正确的插值不应该使用Lerp（线性插值）,而应该使用Slerp（球面插值），球面插值需要四元数
-                                    Dim nor_offset As Vector3 = nor_new - nor_old
-
-                                    Dim tex_old As Vector2 = oldRepo.TexCoordRepo(poly_old.TexCoordIdx(j))
-                                    Dim tex_new As Vector2 = ObjLoader.TexCoordRepo(poly_new.TexCoordIdx(j))
-                                    Dim tex_offset As Vector2 = tex_new - tex_old
-
-                                    If (vtx_offset.Length > 0 OrElse nor_offset.Length > 0 OrElse tex_offset.Length > 0) Then
-                                        Dim kf0 As New KeyFrameVertex
-                                        With kf0
-                                            .Frame = 0
-                                            .VtxIdx = poly_old.VtxIdx(j)
-                                            .Position = Vector3.Zero
-                                            .Normal = Vector3.Zero
-                                            .TexCoord = Vector2.Zero
-                                        End With
-                                        anim.AddKeyFrame(kf0)
-
-                                        Dim kf1 As New KeyFrameVertex
-                                        With kf1
-                                            .Frame = 100
-                                            .VtxIdx = poly_old.VtxIdx(j)
-                                            .Position = vtx_offset
-                                            .Normal = nor_offset
-                                            .TexCoord = tex_offset
-                                        End With
-                                        anim.AddKeyFrame(kf1)
-                                    End If
-                                Next
-                            Next
-
-                        Next
-                        anim.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\testMA.xml")
-                    End If
+                    GenerateDisparityMA()
+                Case "disparity_uv_scale"
+                    GenerateDisparityMA_UV_Scale()
                 Case "test"
-                    'MorphAnimationRepository.Values(0).CurrentFrame = 50
-                    'MorphAnimationRepository.Values(0).ApplyAnimation()
+                    For i = 0 To 100
+                        ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
+                        MorphAnimationRepository.Values(0).CurrentFrame = i
+                        MorphAnimationRepository.Values(0).ApplyAnimation()
+                        RunCmd("ra")
+                        Await Task.Delay(TimeSpan.FromMilliseconds(33))
+                        Application.DoEvents()
+                    Next
+
 
                     'GenerateRandomTexture(Spectator.GetGlobalDevice, Spectator.GetDeviceContext)
                     'PBox.Image = RasterizerRandomTexture_sys
@@ -226,6 +178,18 @@ Public Class Form1
                     Dim anim As MorphAnimation = MorphAnimationRepository(args(1))
                     Dim anim2 As MorphAnimation = anim.Left
                     anim2.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\leftMA.xml")
+                Case "ma_clip_right"
+                    Dim anim As MorphAnimation = MorphAnimationRepository(args(1))
+                    Dim anim2 As MorphAnimation = anim.Right
+                    anim2.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\rightMA.xml")
+                Case "ma_clip_left2"
+                    Dim anim As MorphAnimation = MorphAnimationRepository(args(1))
+                    Dim anim2 As MorphAnimation = anim.Left2
+                    anim2.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\leftMA.xml")
+                Case "ma_clip_right2"
+                    Dim anim As MorphAnimation = MorphAnimationRepository(args(1))
+                    Dim anim2 As MorphAnimation = anim.Right2
+                    anim2.SaveAnimation("C:\Users\asdfg\Desktop\rtTest\rightMA.xml")
 
             End Select
         ElseIf argCount = 3 Then
@@ -236,7 +200,6 @@ Public Class Form1
                 Case "setma"
                     MorphAnimationRepository(args(1)).CurrentFrame = CInt(args(2))
                     MorphAnimationRepository(args(1)).ApplyAnimation()
-
 
             End Select
         ElseIf argCount = 4 Then

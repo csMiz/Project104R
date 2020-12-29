@@ -5,7 +5,6 @@ Module RayTracer
     Public Rand As New Random
 
     Public ObjLoader As New ObjFileManager
-    Public ObjLoader_src As ObjFileManager = Nothing
 
     Public ModelRepository As New List(Of Model)
     Public LightRepository As New List(Of RTLight)

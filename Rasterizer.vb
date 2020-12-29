@@ -49,6 +49,7 @@ Module Rasterizer
         'Console.WriteLine(r3)
 
         LoadAllImageResources(Spectator.GetDeviceContext, Spectator.GetGlobalDevice)
+        GenerateRandomTexture(Spectator.GetGlobalDevice, Spectator.GetDeviceContext)
 
         If Spectator.PaintingLayers.Count = 0 Then
             Spectator.PaintingLayers.Add(AddressOf Spectator.DrawLink3DImage)
@@ -58,7 +59,12 @@ Module Rasterizer
     Public Sub RasterizerUpdateModels()
         Spectator.CurrentRasterizerCamera.ClearMesh()
         For Each model As Model In ModelRepository
-            Spectator.CurrentRasterizerCamera.LoadMesh(model)
+            If ObjLoader_ma_apply Is Nothing Then
+                Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader)
+            Else
+                Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader_ma_apply)
+            End If
+
         Next
     End Sub
 
@@ -551,7 +557,7 @@ Public Class RasterizerCamera
         Return New RawVector2(resultMat.M11 / HalfResolve.X, resultMat.M21 / HalfResolve.Y)
     End Function
 
-    Public Sub LoadMesh(modelIn As Model)
+    Public Sub LoadMesh(modelIn As Model, loader As ObjFileManager)
         SyncLock ContainerSyncLock
             Dim bundle As New ModelPolyVBundle
             bundle.TextureIndex = modelIn.Mesh(0).MaterialName
@@ -560,18 +566,18 @@ Public Class RasterizerCamera
                 With convertPoly
                     .MaterialName = tmpPoly.MaterialName
                     ReDim .Vtx(2)
-                    .Vtx(0) = ObjLoader.VtxRepo(tmpPoly.VtxIdx(0))
-                    .Vtx(1) = ObjLoader.VtxRepo(tmpPoly.VtxIdx(1))
-                    .Vtx(2) = ObjLoader.VtxRepo(tmpPoly.VtxIdx(2))
+                    .Vtx(0) = loader.VtxRepo(tmpPoly.VtxIdx(0))
+                    .Vtx(1) = loader.VtxRepo(tmpPoly.VtxIdx(1))
+                    .Vtx(2) = loader.VtxRepo(tmpPoly.VtxIdx(2))
                     ReDim .Normal(2)
-                    .Normal(0) = ObjLoader.NormalRepo(tmpPoly.NormalIdx(0))
-                    .Normal(1) = ObjLoader.NormalRepo(tmpPoly.NormalIdx(1))
-                    .Normal(2) = ObjLoader.NormalRepo(tmpPoly.NormalIdx(2))
+                    .Normal(0) = loader.NormalRepo(tmpPoly.NormalIdx(0))
+                    .Normal(1) = loader.NormalRepo(tmpPoly.NormalIdx(1))
+                    .Normal(2) = loader.NormalRepo(tmpPoly.NormalIdx(2))
                     If tmpPoly.TexCoordIdx.Length > 0 Then
                         ReDim .TexCoord(2)
-                        .TexCoord(0) = ObjLoader.TexCoordRepo(tmpPoly.TexCoordIdx(0))
-                        .TexCoord(1) = ObjLoader.TexCoordRepo(tmpPoly.TexCoordIdx(1))
-                        .TexCoord(2) = ObjLoader.TexCoordRepo(tmpPoly.TexCoordIdx(2))
+                        .TexCoord(0) = loader.TexCoordRepo(tmpPoly.TexCoordIdx(0))
+                        .TexCoord(1) = loader.TexCoordRepo(tmpPoly.TexCoordIdx(1))
+                        .TexCoord(2) = loader.TexCoordRepo(tmpPoly.TexCoordIdx(2))
                     Else
                         .TexCoord = {Numerics.Vector2.Zero, Numerics.Vector2.Zero, Numerics.Vector2.Zero}
                     End If
@@ -580,7 +586,7 @@ Public Class RasterizerCamera
             Next
             bundle.RefreshBuffer()
 
-            If ObjLoader.MatRepo(modelIn.Mesh(0).MaterialName).MarkAsTransparent Then
+            If loader.MatRepo(modelIn.Mesh(0).MaterialName).MarkAsTransparent Then
                 Me.Container_Transparent.Add(bundle)
             Else
                 Me.Container_Solid.Add(bundle)
@@ -638,7 +644,6 @@ Public Class RasterizerCamera
     Public Sub DrawSSAO2(d3dDevice As Direct3D11.Device1, context As Direct3D11.DeviceContext1)
         Dim lightPos As Vector3 = New Vector3(10, 40, 10)
 
-        GenerateRandomTexture(d3dDevice, Spectator.GetDeviceContext)
         context.OutputMerger.SetTargets(Spectator.GetDepthBufffer, Spectator.GetRenderTargetView)
         SyncLock ContainerSyncLock
             Dim solid_trans As List(Of ModelPolyVBundle)() = {Container_Solid, Container_Transparent}
