@@ -47,6 +47,14 @@ Public Class Form1
         'Dim resultMat As SharpDX.Matrix = lightWVP * inputMat
         'Console.WriteLine(resultMat.M11 & "  " & resultMat.M21 & "  " & resultMat.M31 & "  " & resultMat.M41)
 
+        'Dim vec As New Vector3(7.648788, 0, 0)
+        'Dim vec4 As New Vector4(vec, 1)
+        'Dim mat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(0, -1.57, 0)
+        'Dim r As Vector4 = Vector4.Transform(vec4, mat)
+        'mat = Matrix4x4.CreateFromYawPitchRoll(0, 1.57, 1.6) * mat
+        'Matrix4x4.Invert(mat, mat)
+        'r = Vector4.Transform(vec, mat)
+        'MsgBox(r.ToString)
 
     End Sub
 
@@ -91,6 +99,27 @@ Public Class Form1
                         ma.LoadAnimation(ofd.FileName)
                         MorphAnimationRepository(ma.AnimationName) = ma
                     End If
+                Case "smd"
+                    Dim ofd As New OpenFileDialog With {
+                        .Filter = "SMD File|*.smd",
+                        .RestoreDirectory = True}
+                    If (ofd.ShowDialog = DialogResult.OK) Then
+                        TimerStartAt = DateTime.Now
+                        ModelSMD = New SMDLoader
+                        ModelSMD.LoadSMD(ofd.FileName)
+                        Dim tEnd As Date = DateTime.Now
+                        PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
+                        RunCmd("resetsa")
+                    End If
+                Case "smdlink"
+                    TimerStartAt = DateTime.Now
+                    LinkSMDSkinToObj()
+                    Dim tEnd As Date = DateTime.Now
+                    PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
+                Case "savelink"
+                    SaveLinkInfo("C:\Users\asdfg\Desktop\rtTest\link.txt")
+                Case "loadlink"
+                    LoadLinkInfo("C:\Users\asdfg\Desktop\rtTest\link.txt")
                 Case "printmat"
                     For Each matName As String In ObjLoader.MatRepo.Keys
                         PostMsg(matName)
@@ -99,11 +128,22 @@ Public Class Form1
                     For Each obj As Model In ModelRepository
                         PostMsg(obj.Name)
                     Next
+                Case "printbone"
+                    DisplayBones()
                 Case "ra"
                     If Spectator Is Nothing Then
                         InitializeRasterizer()
                     End If
                     RasterizerUpdateModels()
+                    TimerStartAt = DateTime.Now
+                    Spectator.PaintImage()
+                    Dim tEnd As Date = DateTime.Now
+                    PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
+                Case "rasa"
+                    If Spectator Is Nothing Then
+                        InitializeRasterizer()
+                    End If
+                    RasterizerUpdateModels_SA()
                     TimerStartAt = DateTime.Now
                     Spectator.PaintImage()
                     Dim tEnd As Date = DateTime.Now
@@ -114,6 +154,9 @@ Public Class Form1
 
                 Case "resetma"
                     ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
+                Case "resetsa"
+                    ObjLoader_sa_apply = ObjLoader.Clone()
+                    ObjLoader_sa_middle = ObjLoader.Clone()
                 Case "prema"
                     ObjLoader_ma_ref.ReadObject(ObjLoader.ObjFileName, 1.0)
                     ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
@@ -200,6 +243,27 @@ Public Class Form1
                 Case "setma"
                     MorphAnimationRepository(args(1)).CurrentFrame = CInt(args(2))
                     MorphAnimationRepository(args(1)).ApplyAnimation()
+                Case "bonerot"
+                    Dim boneIdx As Integer = CInt(args(1))   '32
+                    Dim segs As String() = args(2).Split(",")
+                    Dim eulerDelta As Vector3 = New Vector3(CSng(segs(0)), CSng(segs(1)), CSng(segs(2)))
+                    Dim transform As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(eulerDelta.X, eulerDelta.Y, eulerDelta.Z)
+
+                    Dim bonePos As Vector3 = ModelSMD.GetBonePosition(32)
+
+                    For Each skin_kvp As KeyValuePair(Of Integer, Dictionary(Of Integer, Single)) In ModelSkin_Vtx
+                        Dim vtxIdx As Integer = skin_kvp.Key
+                        Dim binding As Dictionary(Of Integer, Single) = skin_kvp.Value
+                        For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
+                            Dim bb_idx As Integer = bind_kvp.Key
+                            If bb_idx = 32 Then
+                                Dim wgt As Single = 1.0F 'bind_kvp.Value
+                                Dim pos_off As Vector3 = ObjLoader.VtxRepo(vtxIdx) - bonePos
+                                pos_off = Vector3.Transform(pos_off, transform)
+                                ObjLoader_sa_apply.VtxRepo(vtxIdx) = bonePos + pos_off
+                            End If
+                        Next
+                    Next
 
             End Select
         ElseIf argCount = 4 Then
@@ -227,6 +291,8 @@ Public Class Form1
                     End If
 
             End Select
+        ElseIf argCount = 5 Then
+
         End If
 
     End Sub
@@ -254,6 +320,24 @@ Public Class Form1
         Dim g As Graphics = Graphics.FromImage(bitmap)
         g.Clear(Color.White)
         PrintSingleBVH(BVHRepository, g, depth, 0)
+        g.Dispose()
+        PBox.Image = bitmap
+
+    End Sub
+
+    Public Sub DisplayBones()
+        Dim bitmap As New Bitmap(800, 600)
+        Dim g As Graphics = Graphics.FromImage(bitmap)
+        g.Clear(Color.White)
+
+        For Each i In ModelSMD.Nodes.Keys
+            If i >= 0 Then
+                Dim bonePos As Vector3 = ModelSMD.GetBonePosition(i)
+
+                g.DrawRectangle(Pens.Black, New Rectangle(bonePos.X * 10 + 400 - 5, -bonePos.Y * 10 + 300 - 5, 10, 10))
+            End If
+        Next
+
         g.Dispose()
         PBox.Image = bitmap
 

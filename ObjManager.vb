@@ -16,6 +16,49 @@ Module ObjManager
         Next
     End Sub
 
+    Public Function FindNearestVertex(posIn As Vector3) As Integer
+        Dim res As Integer = 0
+        Dim minDist As Single = 9999.9F
+        For Each vtx As KeyValuePair(Of Integer, Vector3) In ObjLoader.VtxRepo
+            Dim dist As Single = Vector3.Distance(vtx.Value, posIn)
+            If dist < minDist Then
+                res = vtx.Key
+                minDist = dist
+            End If
+        Next
+        Return res
+    End Function
+
+    Public Function FindNearestVertex(posIn As Vector3, modelGroupIn As String) As Integer
+        Dim res As Integer = 0
+        Dim minDist As Single = 9999.9F
+        Dim noMatchModel As Boolean = True
+        For Each model As Model In ModelRepository
+            If model.Name = modelGroupIn Then
+                noMatchModel = False
+                Dim vtxidx As New Dictionary(Of Integer, Integer)
+                For Each poly As ModelPoly In model.Mesh.Values
+                    For i = 0 To 2
+                        vtxidx(poly.VtxIdx(i)) = 1
+                    Next
+                Next
+                For Each idx As Integer In vtxidx.Keys
+                    Dim dist As Single = Vector3.Distance(ObjLoader.VtxRepo(idx), posIn)
+                    If dist < minDist Then
+                        res = idx
+                        minDist = dist
+                        If minDist < 0.00001 Then
+                            Return res
+                        End If
+                    End If
+                Next
+            End If
+        Next
+        If noMatchModel Then Throw New Exception("no match model")
+        If minDist > 0.001 Then Throw New Exception("no match vtx")
+        Return res
+    End Function
+
 
 End Module
 
@@ -176,6 +219,7 @@ Public Class ObjFileManager
                     For i = 1 To segs.Count - 1
                         CurrentObj.Name = CurrentObj.Name & segs(i) & "_"
                     Next
+                    CurrentObj.Name = CurrentObj.Name.Substring(0, CurrentObj.Name.Length - 1)
                 ElseIf (arg = "usemtl") Then
                     Dim tmpMat As ModelMaterial = MatRepo(segs(1))
                     CurrentMat = tmpMat

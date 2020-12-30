@@ -122,6 +122,7 @@
     <Compile Include="ObjManager.vb" />
     <Compile Include="Rasterizer.vb" />
     <Compile Include="RayTracer.vb" />
+    <Compile Include="SMDLoader.vb" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Form1.resx">

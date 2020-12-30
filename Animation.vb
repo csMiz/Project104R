@@ -9,6 +9,168 @@ Module Animation
     Public ObjLoader_ma_ref As New ObjFileManager
     Public ObjLoader_ma_apply As ObjFileManager = Nothing
 
+    Public ModelSkin_Vtx As Dictionary(Of Integer, Dictionary(Of Integer, Single)) = Nothing
+    Public ModelSkin_Bone As Dictionary(Of Integer, Dictionary(Of Integer, Single)) = Nothing
+    Public ModelSMD As SMDLoader = Nothing
+
+    Public ObjLoader_sa_middle As ObjFileManager = Nothing
+    Public ObjLoader_sa_apply As ObjFileManager = Nothing
+
+    Public Sub SetBoneRotate(boneIdx As Integer, yawPitchRoll As Vector3)
+        Dim rotMat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(yawPitchRoll.X, yawPitchRoll.Y, yawPitchRoll.Z)
+        ' 更新直接绑定的顶点
+        Dim lastBonePosRepo As Dictionary(Of Integer, Vector3) = ModelSMD.AppliedBonePosition
+        Dim lastBonePos As Vector3 = lastBonePosRepo(boneIdx)
+        Dim binding As Dictionary(Of Integer, Single) = ModelSkin_Bone(boneIdx)
+        For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
+            Dim vtxIdx As Integer = bind_kvp.Key
+            Dim weight As Single = bind_kvp.Value
+            Dim lastVtxPos As Vector3 = ObjLoader_sa_apply.VtxRepo(vtxIdx)
+            Dim offset As Vector3 = lastVtxPos - lastBonePos
+            offset = Vector3.Transform(offset, rotMat)
+            Dim fullVtxPos As Vector3 = lastBonePos + offset
+
+            Dim contibute As Vector3 = weight * (fullVtxPos - lastVtxPos)
+            ObjLoader_sa_middle.VtxRepo(vtxIdx) += contibute
+        Next
+        ' 更新子骨骼
+        Dim childBones As List(Of Integer) = ModelSMD.GetChildBone(boneIdx)
+        ' 子骨骼节点移动
+        'TODO
+        ' 子骨骼绑定顶点移动
+        'TODO
+
+    End Sub
+
+    Public Sub ApplySkinMiddle()
+        ObjLoader_sa_apply = ObjLoader_sa_middle
+        ObjLoader_sa_middle = ObjLoader_sa_middle.Clone
+    End Sub
+
+    Public Sub LinkSMDSkinToObj()
+        ModelSkin_Vtx = New Dictionary(Of Integer, Dictionary(Of Integer, Single))
+        Dim prog As Integer = 0
+        For Each tri As SMD_ReferenceTriangle In ModelSMD.Triangles.Values
+            For i = 0 To 2
+                Dim vtx As SMD_BonePosNormUVLink = tri.Vertices(i)
+                Dim vtxPos As Vector3 = vtx.Position
+                Dim objVtxIdx As Integer = FindNearestVertex(vtxPos, ModelSMD.Nodes(vtx.ParentBoneIndex).BoneName)
+                ModelSkin_Vtx(objVtxIdx) = vtx.Links
+            Next
+            prog += 1
+            If prog Mod 2500 = 0 Then
+                Form1.PostMsg("已处理: " & (prog * 100.0 / ModelSMD.TriangleCount).ToString("00.00") & "%")
+                Application.DoEvents()
+            End If
+        Next
+        CacheVerticesSkinToBones()
+        Form1.PostMsg("已完成: " & ModelSMD.TriangleCount)
+    End Sub
+
+    Public Sub CacheVerticesSkinToBones()
+        ModelSkin_Bone = New Dictionary(Of Integer, Dictionary(Of Integer, Single))
+        For Each vtx_kvp As KeyValuePair(Of Integer, Dictionary(Of Integer, Single)) In ModelSkin_Vtx
+            Dim vtxIdx As Integer = vtx_kvp.Key
+            For Each skin_kvp As KeyValuePair(Of Integer, Single) In vtx_kvp.Value
+                Dim boneIdx As Integer = skin_kvp.Key
+                Dim weight As Single = skin_kvp.Value
+                If Not ModelSkin_Bone.ContainsKey(boneIdx) Then
+                    ModelSkin_Bone(boneIdx) = New Dictionary(Of Integer, Single)
+                End If
+                ModelSkin_Bone(boneIdx)(vtxIdx) = weight
+            Next
+        Next
+    End Sub
+
+    Public Sub SaveLinkInfo(path As String)
+        Dim file As New FileStream(path, FileMode.Create)
+        Using sw As New StreamWriter(file)
+            sw.WriteLine("vtx_link")
+            For Each vtx_kvp As KeyValuePair(Of Integer, Dictionary(Of Integer, Single)) In ModelSkin_Vtx
+                Dim vtxIdx As Integer = vtx_kvp.Key
+                Dim skin_count As Integer = vtx_kvp.Value.Count
+                Dim str As String = vtxIdx.ToString & " " & skin_count & " "
+                For Each skin_kvp As KeyValuePair(Of Integer, Single) In vtx_kvp.Value
+                    Dim boneIdx As Integer = skin_kvp.Key
+                    Dim weight As Single = skin_kvp.Value
+                    str &= (boneIdx & " " & weight & " ")
+                Next
+                sw.WriteLine(str.TrimEnd)
+            Next
+            sw.WriteLine("end")
+            sw.WriteLine("bone_link")
+            For Each bone_kvp As KeyValuePair(Of Integer, Dictionary(Of Integer, Single)) In ModelSkin_Bone
+                Dim boneIdx As Integer = bone_kvp.Key
+                Dim skin_count As Integer = bone_kvp.Value.Count
+                Dim str As String = boneIdx.ToString & " " & skin_count & " "
+                For Each skin_kvp As KeyValuePair(Of Integer, Single) In bone_kvp.Value
+                    Dim vtxIdx As Integer = skin_kvp.Key
+                    Dim weight As Single = skin_kvp.Value
+                    str &= (vtxIdx & " " & weight & " ")
+                Next
+                sw.WriteLine(str.TrimEnd)
+            Next
+            sw.WriteLine("end")
+        End Using
+        file.Close()
+        file.Dispose()
+    End Sub
+
+    Public Sub LoadLinkInfo(path As String)
+        ModelSkin_Vtx = New Dictionary(Of Integer, Dictionary(Of Integer, Single))
+        ModelSkin_Bone = New Dictionary(Of Integer, Dictionary(Of Integer, Single))
+        Dim mode As Integer = 0    ' 0-none 1-vtx 2-bone
+
+        Dim file As New FileStream(path, FileMode.Open)
+        Using sr As New StreamReader(file)
+            While Not sr.EndOfStream
+                Dim line As String = sr.ReadLine.Trim
+                If line.Length = 0 Then Continue While
+                Dim segs As String() = line.Split
+                Dim head As String = segs(0)
+                If mode = 0 Then
+                    If head = "vtx_link" Then
+                        mode = 1
+                    ElseIf head = "bone_link" Then
+                        mode = 2
+                    End If
+                ElseIf mode = 1 Then
+                    If head = "end" Then
+                        mode = 0
+                    Else
+                        Dim vtxIdx As Integer = CInt(head)
+                        ModelSkin_Vtx(vtxIdx) = New Dictionary(Of Integer, Single)
+                        Dim skinCount As Integer = CInt(segs(1))
+                        If skinCount > 0 Then
+                            For i = 0 To skinCount - 1
+                                Dim boneIdx As Integer = CInt(segs(2 + 2 * i))
+                                Dim weight As Single = CSng(segs(3 + 2 * i))
+                                ModelSkin_Vtx(vtxIdx)(boneIdx) = weight
+                            Next
+                        End If
+                    End If
+                ElseIf mode = 2 Then
+                    If head = "end" Then
+                        mode = 0
+                    Else
+                        Dim boneIdx As Integer = CInt(head)
+                        ModelSkin_Bone(boneIdx) = New Dictionary(Of Integer, Single)
+                        Dim skinCount As Integer = CInt(segs(1))
+                        If skinCount > 0 Then
+                            For i = 0 To skinCount - 1
+                                Dim vtxIdx As Integer = CInt(segs(2 + 2 * i))
+                                Dim weight As Single = CSng(segs(3 + 2 * i))
+                                ModelSkin_Vtx(boneIdx)(vtxIdx) = weight
+                            Next
+                        End If
+                    End If
+                End If
+            End While
+        End Using
+        file.Close()
+        file.Dispose()
+    End Sub
+
     Public Sub GenerateDisparityMA()
         Dim anim As New MorphAnimation
         anim.AnimationName = "Animation1"
@@ -289,6 +451,8 @@ Public Class MorphAnimation
     Public KeyFrames As New List(Of KeyFrameVertex)
 
     Public CurrentFrame As Integer = 0
+
+    Public ParentBone As Integer = -1
 
 
     Public Function Left(Optional axis As Single = 0.0F) As MorphAnimation

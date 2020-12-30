@@ -67,6 +67,12 @@ Module Rasterizer
 
         Next
     End Sub
+    Public Sub RasterizerUpdateModels_SA()
+        Spectator.CurrentRasterizerCamera.ClearMesh()
+        For Each model As Model In ModelRepository
+            Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader_sa_apply)
+        Next
+    End Sub
 
     Public Sub InitializePBoxCanvas()
         If PBox_ImageCanvas IsNot Nothing Then
