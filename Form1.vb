@@ -47,13 +47,12 @@ Public Class Form1
         'Dim resultMat As SharpDX.Matrix = lightWVP * inputMat
         'Console.WriteLine(resultMat.M11 & "  " & resultMat.M21 & "  " & resultMat.M31 & "  " & resultMat.M41)
 
-        'Dim vec As New Vector3(7.648788, 0, 0)
-        'Dim vec4 As New Vector4(vec, 1)
-        'Dim mat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(0, -1.57, 0)
-        'Dim r As Vector4 = Vector4.Transform(vec4, mat)
-        'mat = Matrix4x4.CreateFromYawPitchRoll(0, 1.57, 1.6) * mat
+        'Dim lastv As New Vector3(0, 0.174, 16.674)
+        'Dim vec As New Vector3(1.84, 0, 0)
+        'Dim mat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(1.57, 0, 0)
         'Matrix4x4.Invert(mat, mat)
-        'r = Vector4.Transform(vec, mat)
+        'Dim r As Vector3 = Vector3.Transform(vec, mat)
+        'r += lastv
         'MsgBox(r.ToString)
 
     End Sub
@@ -116,6 +115,7 @@ Public Class Form1
                     LinkSMDSkinToObj()
                     Dim tEnd As Date = DateTime.Now
                     PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
+                    RunCmd("savelink")
                 Case "savelink"
                     SaveLinkInfo("C:\Users\asdfg\Desktop\rtTest\link.txt")
                 Case "loadlink"
@@ -143,6 +143,7 @@ Public Class Form1
                     If Spectator Is Nothing Then
                         InitializeRasterizer()
                     End If
+                    RunCmd("applysa")
                     RasterizerUpdateModels_SA()
                     TimerStartAt = DateTime.Now
                     Spectator.PaintImage()
@@ -160,6 +161,8 @@ Public Class Form1
                 Case "prema"
                     ObjLoader_ma_ref.ReadObject(ObjLoader.ObjFileName, 1.0)
                     ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
+                Case "applysa"
+                    ApplySkinMiddle()
                 Case "aabb"
                     GenerateAABB()
                 Case "caabb"
@@ -181,10 +184,13 @@ Public Class Form1
                         Application.DoEvents()
                     Next
 
+                    'Dim rot As Matrix4x4 = ModelSMD.GetBoneRotation(31)
+                    'Console.WriteLine(rot.ToString)
+                    'Matrix4x4.Invert(rot, rot)
+                    'Console.WriteLine(rot.ToString)
 
-                    'GenerateRandomTexture(Spectator.GetGlobalDevice, Spectator.GetDeviceContext)
-                    'PBox.Image = RasterizerRandomTexture_sys
-
+                Case "script"
+                    LoadMotionScript()
 
             End Select
         ElseIf argCount = 2 Then
@@ -247,23 +253,7 @@ Public Class Form1
                     Dim boneIdx As Integer = CInt(args(1))   '32
                     Dim segs As String() = args(2).Split(",")
                     Dim eulerDelta As Vector3 = New Vector3(CSng(segs(0)), CSng(segs(1)), CSng(segs(2)))
-                    Dim transform As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(eulerDelta.X, eulerDelta.Y, eulerDelta.Z)
-
-                    Dim bonePos As Vector3 = ModelSMD.GetBonePosition(32)
-
-                    For Each skin_kvp As KeyValuePair(Of Integer, Dictionary(Of Integer, Single)) In ModelSkin_Vtx
-                        Dim vtxIdx As Integer = skin_kvp.Key
-                        Dim binding As Dictionary(Of Integer, Single) = skin_kvp.Value
-                        For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
-                            Dim bb_idx As Integer = bind_kvp.Key
-                            If bb_idx = 32 Then
-                                Dim wgt As Single = 1.0F 'bind_kvp.Value
-                                Dim pos_off As Vector3 = ObjLoader.VtxRepo(vtxIdx) - bonePos
-                                pos_off = Vector3.Transform(pos_off, transform)
-                                ObjLoader_sa_apply.VtxRepo(vtxIdx) = bonePos + pos_off
-                            End If
-                        Next
-                    Next
+                    SetBoneRotate(boneIdx, eulerDelta)
 
             End Select
         ElseIf argCount = 4 Then
@@ -333,8 +323,15 @@ Public Class Form1
         For Each i In ModelSMD.Nodes.Keys
             If i >= 0 Then
                 Dim bonePos As Vector3 = ModelSMD.GetBonePosition(i)
+                Dim boneRot As Matrix4x4 = ModelSMD.GetBoneRotation(i)
+                Dim ori As New Vector3(1, 0, 0)
+                ori = Vector3.Transform(ori, boneRot)
 
-                g.DrawRectangle(Pens.Black, New Rectangle(bonePos.X * 10 + 400 - 5, -bonePos.Y * 10 + 300 - 5, 10, 10))
+                g.DrawEllipse(Pens.Black, New Rectangle(bonePos.X * 10 + 400 - 5, -bonePos.Y * 10 + 300 - 5, 10, 10))
+                g.DrawLine(Pens.Black, New PointF(bonePos.X * 10 + 400, -bonePos.Y * 10 + 300), New PointF((bonePos.X + ori.X) * 10 + 400, -(bonePos.Y + ori.Y) * 10 + 300))
+
+                g.DrawEllipse(Pens.Red, New Rectangle(bonePos.Z * 10 + 600 - 5, -bonePos.Y * 10 + 300 - 5, 10, 10))
+                g.DrawLine(Pens.Red, New PointF(bonePos.Z * 10 + 600, -bonePos.Y * 10 + 300), New PointF((bonePos.Z + ori.Z) * 10 + 600, -(bonePos.Y + ori.Y) * 10 + 300))
             End If
         Next
 

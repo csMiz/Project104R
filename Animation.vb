@@ -16,10 +16,47 @@ Module Animation
     Public ObjLoader_sa_middle As ObjFileManager = Nothing
     Public ObjLoader_sa_apply As ObjFileManager = Nothing
 
-    Public Sub SetBoneRotate(boneIdx As Integer, yawPitchRoll As Vector3)
-        Dim rotMat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(yawPitchRoll.X, yawPitchRoll.Y, yawPitchRoll.Z)
+    Public Async Sub LoadMotionScript()
+        Dim path As String = "C:\Users\asdfg\Desktop\P104C\Tests\script_lp.txt"
+        Dim file As New FileStream(path, FileMode.Open)
+        Using sr As New StreamReader(file)
+            While Not sr.EndOfStream
+                Dim line As String = sr.ReadLine.Trim
+                If line.Length > 0 Then
+                    Dim segs As String() = line.Split(",")
+                    Dim rot As New Vector3(CSng(segs(3)), CSng(segs(4)), CSng(segs(2)))
+                    rot *= (Math.PI / 180.0)
+                    'reset sa
+                    ObjLoader_sa_apply = ObjLoader.Clone()
+                    ObjLoader_sa_middle = ObjLoader.Clone()
+                    'head bone rotation
+                    SetBoneRotate(33, rot)
+
+                    Form1.RunCmd("rasa")
+
+                    Await Task.Delay(TimeSpan.FromMilliseconds(50))
+                End If
+            End While
+        End Using
+        file.Close()
+        file.Dispose()
+
+    End Sub
+
+    Public Sub SetBoneRotate(boneIdx As Integer, rot As Vector3)
+        Dim cm As Matrix4x4 = ModelSMD.GetBoneRotation(ModelSMD.Nodes(boneIdx).ParentIdx)
+        Matrix4x4.Invert(cm, cm)
+        Dim x_axis As Vector3 = New Vector3(cm.M11, cm.M21, cm.M31)
+        Dim y_axis As Vector3 = New Vector3(cm.M12, cm.M22, cm.M32)
+        Dim z_axis As Vector3 = New Vector3(cm.M13, cm.M23, cm.M33)
+
+        Dim rotMatX As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(x_axis, -rot.X)
+        Dim rotMatY As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(y_axis, -rot.Z)
+        Dim rotMatZ As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(z_axis, rot.Y)
+        Dim rotMat As Matrix4x4 = rotMatY * rotMatZ * rotMatX
+
         ' 更新直接绑定的顶点
-        Dim lastBonePosRepo As Dictionary(Of Integer, Vector3) = ModelSMD.AppliedBonePosition
+        Dim lastBonePosRepo As Dictionary(Of Integer, Vector3) = ModelSMD.AppliedBonePos
         Dim lastBonePos As Vector3 = lastBonePosRepo(boneIdx)
         Dim binding As Dictionary(Of Integer, Single) = ModelSkin_Bone(boneIdx)
         For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
@@ -27,11 +64,34 @@ Module Animation
             Dim weight As Single = bind_kvp.Value
             Dim lastVtxPos As Vector3 = ObjLoader_sa_apply.VtxRepo(vtxIdx)
             Dim offset As Vector3 = lastVtxPos - lastBonePos
-            offset = Vector3.Transform(offset, rotMat)
+
+            Dim offr As New Matrix4x4 With {.M11 = offset.X, .M21 = offset.Y, .M31 = offset.Z}
+            offr = rotMat * offr
+            offset = New Vector3(offr.M11, offr.M21, offr.M31)
+
             Dim fullVtxPos As Vector3 = lastBonePos + offset
 
             Dim contibute As Vector3 = weight * (fullVtxPos - lastVtxPos)
             ObjLoader_sa_middle.VtxRepo(vtxIdx) += contibute
+
+            Dim normIdx As New List(Of Integer)
+            Dim normCandi As Integer() = ObjLoader.VtxNormTexBinding_Vtx(vtxIdx)
+            If normCandi.Count > 0 Then
+                For i = 0 To normCandi.Count - 1
+                    If i Mod 2 = 0 Then
+                        normIdx.Add(normCandi(i))
+                    End If
+                Next
+            End If
+            For Each nidx As Integer In normIdx
+                Dim lastNorm As Vector3 = ObjLoader_sa_apply.NormalRepo(nidx)
+                Dim lastNorm44 As New Matrix4x4 With {.M11 = lastNorm.X, .M21 = lastNorm.Y, .M31 = lastNorm.Z}
+                lastNorm44 = rotMat * lastNorm44
+                Dim nowNorm As New Vector3(lastNorm44.M11, lastNorm44.M21, lastNorm44.M31)
+                Dim contibuteNorm As Vector3 = weight * (nowNorm - lastNorm)
+                ObjLoader_sa_middle.NormalRepo(nidx) += contibuteNorm
+            Next
+
         Next
         ' 更新子骨骼
         Dim childBones As List(Of Integer) = ModelSMD.GetChildBone(boneIdx)
@@ -43,6 +103,12 @@ Module Animation
     End Sub
 
     Public Sub ApplySkinMiddle()
+        Dim normKeys As Integer() = ObjLoader_sa_middle.NormalRepo.Keys.ToArray
+        For Each normIdx As Integer In normKeys
+            Dim middleNorm As Vector3 = ObjLoader_sa_middle.NormalRepo(normIdx)
+            ObjLoader_sa_middle.NormalRepo(normIdx) = Vector3.Normalize(middleNorm)
+        Next
+
         ObjLoader_sa_apply = ObjLoader_sa_middle
         ObjLoader_sa_middle = ObjLoader_sa_middle.Clone
     End Sub
@@ -160,7 +226,7 @@ Module Animation
                             For i = 0 To skinCount - 1
                                 Dim vtxIdx As Integer = CInt(segs(2 + 2 * i))
                                 Dim weight As Single = CSng(segs(3 + 2 * i))
-                                ModelSkin_Vtx(boneIdx)(vtxIdx) = weight
+                                ModelSkin_Bone(boneIdx)(vtxIdx) = weight
                             Next
                         End If
                     End If
@@ -186,8 +252,8 @@ Module Animation
 
             For k = 0 To ModelRepository.Count - 1
                 Dim targetObj_old As Model = ModelRepository(k)
-                'Dim objFilter As String() = {"headPoly_head_f_", "head_f_eyeR_eyelashR_", "head_f_eyeR_eyelidR_", "head_f_eyeL_eyelashL_", "head_f_eyeL_eyelidL_"}
-                Dim objFilter As String() = {"head_f_IrisR_eyeR_", "head_f_IrisL_eyeL_"}
+                Dim objFilter As String() = {"body_f", "head_f_eyeR_eyelashR", "head_f_eyeR_eyelidR", "head_f_eyeL_eyelashL", "head_f_eyeL_eyelidL"}
+                'Dim objFilter As String() = {"head_f_IrisR_eyeR", "head_f_IrisL_eyeL"}
                 If Not objFilter.Contains(targetObj_old.Name) Then Continue For
 
                 Dim targetObj_new As Model = secondModel(k)
@@ -458,34 +524,44 @@ Public Class MorphAnimation
     Public Function Left(Optional axis As Single = 0.0F) As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Left"
-        Dim candi_norm As New List(Of Integer)
-        Dim candi_tex As New List(Of Integer)
+        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.IndexType = 0 Then
                 If ObjLoader_ma_ref.VtxRepo(head.Index).X < axis Then
                     result.AddKeyFrame(head)
-
-                    Dim link_norm As New List(Of Integer)
-                    Dim link_tex As New List(Of Integer)
-                    FindVertexInfo(head.Index, ModelRepository, link_norm, link_tex)
-                    For Each norm As Integer In link_norm
-                        If Not candi_norm.Contains(norm) Then candi_norm.Add(norm)
-                    Next
-                    For Each tex As Integer In link_tex
-                        If Not candi_tex.Contains(tex) Then candi_tex.Add(tex)
+                End If
+            ElseIf head.IndexType = 1 Then
+                Dim linkVtx As New List(Of Integer)
+                Dim len As Integer = ObjLoader_ma_ref.VtxNormTexBinding_Norm(head.Index).Length
+                If len > 0 Then
+                    For i = 0 To len - 1
+                        If i Mod 2 = 0 Then
+                            linkVtx.Add(ObjLoader_ma_ref.VtxNormTexBinding_Norm(head.Index)(i))
+                        End If
                     Next
                 End If
-            End If
-        Next
-        For Each head As KeyFrameVertex In Me.KeyFrames
-            If head.IndexType = 1 Then
-                If candi_norm.Contains(head.Index) Then
-                    result.AddKeyFrame(head)
-                End If
+                For Each vtx As Integer In linkVtx
+                    If ObjLoader_ma_ref.VtxRepo(vtx).X < axis Then
+                        result.AddKeyFrame(head)
+                        Exit For
+                    End If
+                Next
             ElseIf head.IndexType = 2 Then
-                If candi_tex.Contains(head.Index) Then
-                    result.AddKeyFrame(head)
+                Dim linkVtx As New List(Of Integer)
+                Dim len As Integer = ObjLoader_ma_ref.VtxNormTexBinding_Tex(head.Index).Length
+                If len > 0 Then
+                    For i = 0 To len - 1
+                        If i Mod 2 = 0 Then
+                            linkVtx.Add(ObjLoader_ma_ref.VtxNormTexBinding_Tex(head.Index)(i))
+                        End If
+                    Next
                 End If
+                For Each vtx As Integer In linkVtx
+                    If ObjLoader_ma_ref.VtxRepo(vtx).X < axis Then
+                        result.AddKeyFrame(head)
+                        Exit For
+                    End If
+                Next
             End If
         Next
         Return result
@@ -493,8 +569,9 @@ Public Class MorphAnimation
     Public Function Left2() As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Left"
+        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
-            If head.Tag.EndsWith("eyeR_") Then
+            If head.Tag.EndsWith("R") Then
                 result.AddKeyFrame(head)
             End If
         Next
@@ -504,34 +581,44 @@ Public Class MorphAnimation
     Public Function Right(Optional axis As Single = 0.0F) As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Right"
-        Dim candi_norm As New List(Of Integer)
-        Dim candi_tex As New List(Of Integer)
+        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.IndexType = 0 Then
                 If ObjLoader_ma_ref.VtxRepo(head.Index).X > axis Then
                     result.AddKeyFrame(head)
-
-                    Dim link_norm As New List(Of Integer)
-                    Dim link_tex As New List(Of Integer)
-                    FindVertexInfo(head.Index, ModelRepository, link_norm, link_tex)
-                    For Each norm As Integer In link_norm
-                        If Not candi_norm.Contains(norm) Then candi_norm.Add(norm)
-                    Next
-                    For Each tex As Integer In link_tex
-                        If Not candi_tex.Contains(tex) Then candi_tex.Add(tex)
+                End If
+            ElseIf head.IndexType = 1 Then
+                Dim linkVtx As New List(Of Integer)
+                Dim len As Integer = ObjLoader_ma_ref.VtxNormTexBinding_Norm(head.Index).Length
+                If len > 0 Then
+                    For i = 0 To len - 1
+                        If i Mod 2 = 0 Then
+                            linkVtx.Add(ObjLoader_ma_ref.VtxNormTexBinding_Norm(head.Index)(i))
+                        End If
                     Next
                 End If
-            End If
-        Next
-        For Each head As KeyFrameVertex In Me.KeyFrames
-            If head.IndexType = 1 Then
-                If candi_norm.Contains(head.Index) Then
-                    result.AddKeyFrame(head)
-                End If
+                For Each vtx As Integer In linkVtx
+                    If ObjLoader_ma_ref.VtxRepo(vtx).X > axis Then
+                        result.AddKeyFrame(head)
+                        Exit For
+                    End If
+                Next
             ElseIf head.IndexType = 2 Then
-                If candi_tex.Contains(head.Index) Then
-                    result.AddKeyFrame(head)
+                Dim linkVtx As New List(Of Integer)
+                Dim len As Integer = ObjLoader_ma_ref.VtxNormTexBinding_Tex(head.Index).Length
+                If len > 0 Then
+                    For i = 0 To len - 1
+                        If i Mod 2 = 0 Then
+                            linkVtx.Add(ObjLoader_ma_ref.VtxNormTexBinding_Tex(head.Index)(i))
+                        End If
+                    Next
                 End If
+                For Each vtx As Integer In linkVtx
+                    If ObjLoader_ma_ref.VtxRepo(vtx).X > axis Then
+                        result.AddKeyFrame(head)
+                        Exit For
+                    End If
+                Next
             End If
         Next
         Return result
@@ -539,8 +626,9 @@ Public Class MorphAnimation
     Public Function Right2() As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Right"
+        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
-            If head.Tag.EndsWith("eyeL_") Then
+            If head.Tag.EndsWith("L") Then
                 result.AddKeyFrame(head)
             End If
         Next
@@ -686,6 +774,7 @@ Public Class MorphAnimation
 
         Dim root As XmlElement = xDoc.CreateElement("Project104R_MA")
         root.SetAttribute("Name", AnimationName)
+        root.SetAttribute("Parent", ParentBone)
         xDoc.AppendChild(root)
 
         For Each kf As KeyFrameVertex In KeyFrames
@@ -700,6 +789,11 @@ Public Class MorphAnimation
         xml.Load(path)
         Dim projectNode As XmlElement = xml.DocumentElement
         Me.AnimationName = projectNode.Attributes("Name").Value
+        If (projectNode.Attributes("Parent") Is Nothing) Then
+            Me.ParentBone = -1
+        Else
+            Me.ParentBone = CInt(projectNode.Attributes("Parent").Value)
+        End If
 
         For Each kfNode As XmlNode In projectNode.ChildNodes
             Dim kf As New KeyFrameVertex

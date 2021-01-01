@@ -8,9 +8,9 @@ Public Class SMDLoader
     Public Nodes As New Dictionary(Of Integer, SMD_Node)
 
     Public Skeleton As New Dictionary(Of Integer, SMD_SkeletalFrame)
-    Public Reference As SMD_SkeletalFrame = Nothing
-    Public ReferenceBonePosition As New Dictionary(Of Integer, Vector3)
-    Public AppliedBonePosition As New Dictionary(Of Integer, Vector3)
+    Public Reference As SMD_SkeletalFrame
+    Public ReferenceBones As New SMD_SkeletalFrame
+    Public AppliedBonePos As New Dictionary(Of Integer, Vector3)
 
     Public Triangles As New Dictionary(Of Integer, SMD_ReferenceTriangle)
     Public TriangleCount As Integer = 0
@@ -33,7 +33,6 @@ Public Class SMDLoader
             matr.M31 = Reference.Content(idx).Position.Z
             matr = cumuMat * matr
             offset = New Vector3(matr.M11, matr.M21, matr.M31)
-            'offset = Vector3.Transform(Reference.Content(idx).Position, cumuMat)
         End If
         Return parentPos + offset
     End Function
@@ -43,8 +42,25 @@ Public Class SMDLoader
             Return Matrix4x4.Identity
         End If
         Dim parent As Integer = Nodes(idx).ParentIdx
-        Dim thisRot = Matrix4x4.CreateFromYawPitchRoll(-Reference.Content(idx).Rotation.Y, -Reference.Content(idx).Rotation.X, -Reference.Content(idx).Rotation.Z)
+        Dim yaw As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(New Vector3(0, 1, 0), Reference.Content(idx).Rotation.Y)
+        Dim pitch As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(New Vector3(1, 0, 0), Reference.Content(idx).Rotation.X)
+        Dim roll As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(New Vector3(0, 0, 1), Reference.Content(idx).Rotation.Z)
+        Dim thisRot As Matrix4x4 = pitch * roll * yaw
+        'Dim thisRot = Matrix4x4.CreateFromYawPitchRoll(Reference.Content(idx).Rotation.Y, Reference.Content(idx).Rotation.X, Reference.Content(idx).Rotation.Z)
         Return thisRot * GetBoneRotation(parent)
+    End Function
+
+    Public Function GetBonePositionW(idx As Integer) As Vector3
+        If idx = -1 Then
+            Return Vector3.Zero
+        End If
+        Return ReferenceBones.Content(idx).Position
+    End Function
+    Public Function GetBoneRotationW(idx As Integer) As Matrix4x4
+        If idx = -1 Then
+            Return Matrix4x4.Identity
+        End If
+        Return Matrix4x4.CreateFromYawPitchRoll(ReferenceBones.Content(idx).Rotation.Y, ReferenceBones.Content(idx).Rotation.X, ReferenceBones.Content(idx).Rotation.Z)
     End Function
 
     Public Function GetChildBone(parentIdx As Integer) As List(Of Integer)
@@ -143,8 +159,56 @@ Public Class SMDLoader
         Reference = Me.Skeleton(0)
         For Each boneIdx As Integer In Me.Nodes.Keys
             Dim absoluteBonePos As Vector3 = GetBonePosition(boneIdx)
-            Me.ReferenceBonePosition(boneIdx) = absoluteBonePos
-            Me.AppliedBonePosition(boneIdx) = New Vector3(absoluteBonePos.X, absoluteBonePos.Y, absoluteBonePos.Z)
+            Me.AppliedBonePos(boneIdx) = New Vector3(absoluteBonePos.X, absoluteBonePos.Y, absoluteBonePos.Z)
+        Next
+    End Sub
+
+    Public Sub LoadSMDW(path As String)
+        Dim readMode As Integer = 0    '0-none 1-nodes 2-skeleton 3-triangles
+
+        Dim file As FileStream = New FileStream(path, FileMode.Open)
+        Using sr As New StreamReader(file)
+            While Not sr.EndOfStream
+                Dim line As String = sr.ReadLine.Trim
+                line = line.Replace("  ", " ")
+                If line.Length = 0 Then Continue While
+                Dim segs As String() = line.Split(" ")
+                Dim head As String = segs(0)
+                If readMode = 0 Then
+                    If head = "version" Then
+                        'pass
+                    ElseIf head = "nodes" Then
+                        readMode = 1
+                    ElseIf head = "skeleton" Then
+                        readMode = 2
+                    ElseIf head = "triangles" Then
+                        readMode = 3
+
+                    End If
+                ElseIf readMode = 1 Then
+                    'nodes
+                ElseIf readMode = 2 Then
+                    'skeleton
+                    If head = "end" Then
+                        readMode = 0
+                    ElseIf head = "time" Then
+                        'pass
+                    Else
+                        Dim tmpPR As New SMD_PosRot(New Vector3(CSng(segs(1)), CSng(segs(3)), -CSng(segs(2))), New Vector3(CSng(segs(4)), CSng(segs(6)), -CSng(segs(5))))
+                        Me.ReferenceBones.Content(head) = tmpPR
+                    End If
+                ElseIf readMode = 3 Then
+                    'triangles
+                End If
+
+            End While
+        End Using
+        file.Close()
+        file.Dispose()
+
+        For Each boneIdx As Integer In Me.Nodes.Keys
+            Dim absoluteBone As SMD_PosRot = Me.ReferenceBones.Content(boneIdx)
+            Me.AppliedBonePos(boneIdx) = New Vector3(absoluteBone.Position.X, absoluteBone.Position.Y, absoluteBone.Position.Z)
         Next
     End Sub
 
@@ -198,13 +262,16 @@ Public Structure SMD_PosRot
 
     Public Position As Vector3
     Public Rotation As Vector3    'euler
-    Public RotationQ As Quaternion
 
     Public Sub New(pos As Vector3, rot As Vector3)
         Position = pos
         Rotation = rot
-        RotationQ = Quaternion.CreateFromYawPitchRoll(rot.X, rot.Y, rot.Z)
     End Sub
+
+    Public Function Clone() As SMD_PosRot
+        Dim r As New SMD_PosRot(New Vector3(Position.X, Position.Y, Position.Z), New Vector3(Rotation.X, Rotation.Y, Rotation.Z))
+        Return r
+    End Function
 
 End Structure
 

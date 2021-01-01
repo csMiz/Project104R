@@ -73,8 +73,58 @@ Public Class ObjFileManager
     Public MatRepo As New Dictionary(Of String, ModelMaterial)
     Public TextureRepo As New Dictionary(Of String, ModelTexture)
 
+    Public VtxNormTexBinding_Vtx As New Dictionary(Of Integer, Integer())
+    Public VtxNormTexBinding_Norm As New Dictionary(Of Integer, Integer())
+    Public VtxNormTexBinding_Tex As New Dictionary(Of Integer, Integer())
+
     Public MinX As Single = 9999, MinY As Single = 9999, MinZ As Single = 9999
     Public MaxX As Single = -9999, MaxY As Single = -9999, MaxZ As Single = -9999
+
+    Public Function VtxNormTex_Vtx_Contains(vtx As Integer, norm As Integer, tex As Integer) As Boolean
+        Dim val As Integer() = VtxNormTexBinding_Vtx(vtx)
+        If val.Length > 0 Then
+            For i = 0 To val.Length - 1
+                If i Mod 2 = 0 Then
+                    If norm = val(i) Then
+                        If tex = val(i + 1) Then
+                            Return True
+                        End If
+                    End If
+                End If
+            Next
+        End If
+        Return False
+    End Function
+    Public Function VtxNormTex_Norm_Contains(vtx As Integer, norm As Integer, tex As Integer) As Boolean
+        Dim val As Integer() = VtxNormTexBinding_Norm(norm)
+        If val.Length > 0 Then
+            For i = 0 To val.Length - 1
+                If i Mod 2 = 0 Then
+                    If vtx = val(i) Then
+                        If tex = val(i + 1) Then
+                            Return True
+                        End If
+                    End If
+                End If
+            Next
+        End If
+        Return False
+    End Function
+    Public Function VtxNormTex_Tex_Contains(vtx As Integer, norm As Integer, tex As Integer) As Boolean
+        Dim val As Integer() = VtxNormTexBinding_Tex(tex)
+        If val.Length > 0 Then
+            For i = 0 To val.Length - 1
+                If i Mod 2 = 0 Then
+                    If vtx = val(i) Then
+                        If norm = val(i + 1) Then
+                            Return True
+                        End If
+                    End If
+                End If
+            Next
+        End If
+        Return False
+    End Function
 
     Public Function Clone() As ObjFileManager
         Dim res As New ObjFileManager
@@ -91,6 +141,9 @@ Public Class ObjFileManager
             .MaxX = Me.MaxX
             .MaxY = Me.MaxY
             .MaxZ = Me.MaxZ
+            .VtxNormTexBinding_Vtx = Me.VtxNormTexBinding_Vtx
+            .VtxNormTexBinding_Norm = Me.VtxNormTexBinding_Norm
+            .VtxNormTexBinding_Tex = Me.VtxNormTexBinding_Tex
         End With
         For Each vtx As KeyValuePair(Of Integer, Vector3) In Me.VtxRepo
             res.VtxRepo(vtx.Key) = New Vector3(vtx.Value.X, vtx.Value.Y, vtx.Value.Z)
@@ -202,6 +255,8 @@ Public Class ObjFileManager
                                 tmpMat.EmissionStrength = tmpValue
                             ElseIf (arg2 = "mz_isTrans") Then
                                 tmpMat.MarkAsTransparent = True
+                            ElseIf (arg2 = "mz_noEdge") Then
+                                tmpMat.MarkNoEdge = True
                             Else
                                 'extension here
                             End If
@@ -271,6 +326,55 @@ Public Class ObjFileManager
                         tmpTri.MaterialName = CurrentMat.Name
                     End If
                     CurrentObj.Mesh(CurrentObj.Mesh.Count) = tmpTri
+
+                    For i = 0 To 2
+                        Dim vnt_vtxIdx As Integer = pos_idx(i)
+                        Dim vnt_normIdx As Integer = nor_idx(i)
+                        Dim vnt_texIdx As Integer
+                        If hasTC Then
+                            vnt_texIdx = CInt(f_args(i)(1)) - 1
+                        Else
+                            vnt_texIdx = -1
+                        End If
+                        If Not VtxNormTexBinding_Vtx.ContainsKey(vnt_vtxIdx) Then
+                            VtxNormTexBinding_Vtx(vnt_vtxIdx) = {vnt_normIdx, vnt_texIdx}
+                        Else
+                            If VtxNormTex_Vtx_Contains(vnt_vtxIdx, vnt_normIdx, vnt_texIdx) Then
+                                'pass
+                            Else
+                                Dim tmpList As New List(Of Integer)(VtxNormTexBinding_Vtx(vnt_vtxIdx))
+                                tmpList.Add(vnt_normIdx)
+                                tmpList.Add(vnt_texIdx)
+                                VtxNormTexBinding_Vtx(vnt_vtxIdx) = tmpList.ToArray
+                            End If
+                        End If
+
+                        If Not VtxNormTexBinding_Norm.ContainsKey(vnt_normIdx) Then
+                            VtxNormTexBinding_Norm(vnt_normIdx) = {vnt_vtxIdx, vnt_texIdx}
+                        Else
+                            If VtxNormTex_Norm_Contains(vnt_vtxIdx, vnt_normIdx, vnt_texIdx) Then
+                                'pass
+                            Else
+                                Dim tmpList As New List(Of Integer)(VtxNormTexBinding_Norm(vnt_normIdx))
+                                tmpList.Add(vnt_vtxIdx)
+                                tmpList.Add(vnt_texIdx)
+                                VtxNormTexBinding_Norm(vnt_normIdx) = tmpList.ToArray
+                            End If
+                        End If
+
+                        If Not VtxNormTexBinding_Tex.ContainsKey(vnt_texIdx) Then
+                            VtxNormTexBinding_Tex(vnt_texIdx) = {vnt_vtxIdx, vnt_normIdx}
+                        Else
+                            If VtxNormTex_Tex_Contains(vnt_vtxIdx, vnt_normIdx, vnt_texIdx) Then
+                                'pass
+                            Else
+                                Dim tmpList As New List(Of Integer)(VtxNormTexBinding_Tex(vnt_texIdx))
+                                tmpList.Add(vnt_vtxIdx)
+                                tmpList.Add(vnt_normIdx)
+                                VtxNormTexBinding_Tex(vnt_texIdx) = tmpList.ToArray
+                            End If
+                        End If
+                    Next
                 Else
                     ' extension here
                 End If
@@ -327,6 +431,7 @@ Public Structure ModelPolyV
 End Structure
 
 
+
 Public Class ModelMaterial
 
     Public Name As String = vbNullString
@@ -351,6 +456,7 @@ Public Class ModelMaterial
     Public EmissionTexture As ModelTexture = Nothing
 
     Public MarkAsTransparent As Boolean = False
+    Public MarkNoEdge As Boolean = False
 
 End Class
 
@@ -443,3 +549,4 @@ check_finish:
 
 
 End Class
+
