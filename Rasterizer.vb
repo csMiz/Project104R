@@ -59,18 +59,13 @@ Module Rasterizer
     Public Sub RasterizerUpdateModels()
         Spectator.CurrentRasterizerCamera.ClearMesh()
         For Each model As Model In ModelRepository
-            If ObjLoader_ma_apply Is Nothing Then
-                Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader)
-            Else
-                Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader_ma_apply)
-            End If
-
+            Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader)
         Next
     End Sub
-    Public Sub RasterizerUpdateModels_SA()
+    Public Sub RasterizerUpdateModels_Animation()
         Spectator.CurrentRasterizerCamera.ClearMesh()
         For Each model As Model In ModelRepository
-            Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader_sa_apply)
+            Spectator.CurrentRasterizerCamera.LoadMesh(model, ObjLoader_applied)
         Next
     End Sub
 

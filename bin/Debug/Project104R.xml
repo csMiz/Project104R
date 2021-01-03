@@ -22,6 +22,27 @@ Project104R
   resource lookups using this strongly typed resource class.
 </summary>
 </member>
+<member name="F:Project104R.Animation.ObjLoader_ma_ref">
+ <summary>
+ 仅用于制作MA
+ </summary>
+</member>
+<member name="M:Project104R.Animation.ApplyAllAnimation_Instant">
+ <summary>
+ 即时混合所有MA和SA
+ </summary>
+</member>
+<member name="M:Project104R.Animation.ResetAllAnimation">
+ <summary>
+ 将所有MA和SA还原为初始值
+ </summary>
+</member>
+<member name="M:Project104R.Animation.SetBoneTranform_JointOnly(System.Int32,System.Numerics.Vector3,System.Numerics.Matrix4x4)">
+ <summary>
+ 仅变换骨骼和子骨骼，不计算蒙皮
+ </summary>
+ <param name="boneIdx">骨骼索引</param>
+</member>
 <member name="T:Project104R.LinearTween">
  <summary>
  (0,0), anchor1, anchor2, (1,1)
@@ -30,6 +51,16 @@ Project104R
 <member name="F:Project104R.KeyFrame.Frame">
  <summary>
  时间轴
+ </summary>
+</member>
+<member name="F:Project104R.AnimationScript.CommandMA">
+ <summary>
+ MA值, (ma_idx, frame_val -> 0 to 100)
+ </summary>
+</member>
+<member name="F:Project104R.AnimationScript.CommandSA">
+ <summary>
+ SA变化值, (bone_idx, delta_pos_rot)
  </summary>
 </member>
 <member name="M:Project104R.Rasterizer.LoadAllImageResources(SharpDX.Direct2D1.DeviceContext,SharpDX.Direct3D11.Device1)">

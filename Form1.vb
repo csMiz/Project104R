@@ -66,7 +66,7 @@ Public Class Form1
         End If
     End Sub
 
-    Public Async Sub RunCmd(line As String)
+    Public Sub RunCmd(line As String)
         PostMsg(line)
         Dim args As String() = Regex.Split(line, " ")
         Dim cmd As String = args(0).ToLower
@@ -98,6 +98,16 @@ Public Class Form1
                         ma.LoadAnimation(ofd.FileName)
                         MorphAnimationRepository(ma.AnimationName) = ma
                     End If
+                Case "loadmas"
+                    Dim files As String() = IO.Directory.GetFiles("C:\Users\asdfg\Desktop\rtTest\")
+                    For Each filename As String In files
+                        Dim segs As String() = filename.Split("\")
+                        If segs.Last.StartsWith("ma_") AndAlso segs.Last.EndsWith(".xml") Then
+                            Dim ma As New MorphAnimation
+                            ma.LoadAnimation(filename)
+                            MorphAnimationRepository(ma.AnimationName) = ma
+                        End If
+                    Next
                 Case "smd"
                     Dim ofd As New OpenFileDialog With {
                         .Filter = "SMD File|*.smd",
@@ -139,12 +149,12 @@ Public Class Form1
                     Spectator.PaintImage()
                     Dim tEnd As Date = DateTime.Now
                     PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
-                Case "rasa"
+                Case "raa"
                     If Spectator Is Nothing Then
                         InitializeRasterizer()
                     End If
-                    RunCmd("applysa")
-                    RasterizerUpdateModels_SA()
+                    RunCmd("applya")
+                    RasterizerUpdateModels_Animation()
                     TimerStartAt = DateTime.Now
                     Spectator.PaintImage()
                     Dim tEnd As Date = DateTime.Now
@@ -153,16 +163,12 @@ Public Class Form1
                     TBox1.Text = ""
                 Case "reset"
 
-                Case "resetma"
-                    ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
-                Case "resetsa"
-                    ObjLoader_sa_apply = ObjLoader.Clone()
-                    ObjLoader_sa_middle = ObjLoader.Clone()
-                Case "prema"
-                    ObjLoader_ma_ref.ReadObject(ObjLoader.ObjFileName, 1.0)
-                    ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
-                Case "applysa"
-                    ApplySkinMiddle()
+                Case "reseta"
+                    ResetAllAnimation()
+                Case "applya"
+                    ApplyAllAnimation_Instant()
+                Case "insta"
+                    InstantAnimationScript = New AnimationScript()
                 Case "aabb"
                     GenerateAABB()
                 Case "caabb"
@@ -174,23 +180,23 @@ Public Class Form1
                     GenerateDisparityMA()
                 Case "disparity_uv_scale"
                     GenerateDisparityMA_UV_Scale()
-                Case "test"
-                    For i = 0 To 100
-                        ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
-                        MorphAnimationRepository.Values(0).CurrentFrame = i
-                        MorphAnimationRepository.Values(0).ApplyAnimation()
-                        RunCmd("ra")
-                        Await Task.Delay(TimeSpan.FromMilliseconds(33))
-                        Application.DoEvents()
-                    Next
-
-                    'Dim rot As Matrix4x4 = ModelSMD.GetBoneRotation(31)
-                    'Console.WriteLine(rot.ToString)
-                    'Matrix4x4.Invert(rot, rot)
-                    'Console.WriteLine(rot.ToString)
-
+                Case "server"
+                    StartListener()
+                Case "client"
+                    SendTCPMessage()
                 Case "script"
                     LoadMotionScript()
+                Case "test"
+                    For i = 0 To 100
+                        'ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
+                        'MorphAnimationRepository.Values(0).CurrentFrame = i
+                        'MorphAnimationRepository.Values(0).ApplyAnimation()
+                        'RunCmd("ra")
+                        'Await Task.Delay(TimeSpan.FromMilliseconds(33))
+                        'Application.DoEvents()
+                    Next
+
+
 
             End Select
         ElseIf argCount = 2 Then
@@ -247,13 +253,20 @@ Public Class Form1
                     ImageWidth = CInt(args(1))
                     ImageHeight = CInt(args(2))
                 Case "setma"
-                    MorphAnimationRepository(args(1)).CurrentFrame = CInt(args(2))
-                    MorphAnimationRepository(args(1)).ApplyAnimation()
+                    If InstantAnimationScript Is Nothing Then
+                        InstantAnimationScript = New AnimationScript
+                    End If
+                    Dim target As String = args(1)
+                    Dim val As Integer = CInt(args(2))
+                    InstantAnimationScript.CommandMA(target) = val
                 Case "bonerot"
-                    Dim boneIdx As Integer = CInt(args(1))   '32
+                    If InstantAnimationScript Is Nothing Then
+                        InstantAnimationScript = New AnimationScript
+                    End If
+                    Dim boneIdx As Integer = CInt(args(1))   '33-head
                     Dim segs As String() = args(2).Split(",")
                     Dim eulerDelta As Vector3 = New Vector3(CSng(segs(0)), CSng(segs(1)), CSng(segs(2)))
-                    SetBoneRotate(boneIdx, eulerDelta)
+                    InstantAnimationScript.CommandSA(boneIdx) = New SMD_PosRot44(Vector3.Zero, EulerRotateUnderParent(boneIdx, eulerDelta))
 
             End Select
         ElseIf argCount = 4 Then
@@ -324,8 +337,8 @@ Public Class Form1
             If i >= 0 Then
                 Dim bonePos As Vector3 = ModelSMD.GetBonePosition(i)
                 Dim boneRot As Matrix4x4 = ModelSMD.GetBoneRotation(i)
-                Dim ori As New Vector3(1, 0, 0)
-                ori = Vector3.Transform(ori, boneRot)
+                Matrix4x4.Invert(boneRot, boneRot)
+                Dim ori As New Vector3(boneRot.M11, boneRot.M21, boneRot.M31)
 
                 g.DrawEllipse(Pens.Black, New Rectangle(bonePos.X * 10 + 400 - 5, -bonePos.Y * 10 + 300 - 5, 10, 10))
                 g.DrawLine(Pens.Black, New PointF(bonePos.X * 10 + 400, -bonePos.Y * 10 + 300), New PointF((bonePos.X + ori.X) * 10 + 400, -(bonePos.Y + ori.Y) * 10 + 300))

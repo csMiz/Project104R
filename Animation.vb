@@ -6,112 +6,194 @@ Module Animation
 
     Public MorphAnimationRepository As New Dictionary(Of String, MorphAnimation)
 
-    Public ObjLoader_ma_ref As New ObjFileManager
-    Public ObjLoader_ma_apply As ObjFileManager = Nothing
+    ''' <summary>
+    ''' 仅用于制作MA
+    ''' </summary>
+    Friend ObjLoader_ma_ref As New ObjFileManager
 
     Public ModelSkin_Vtx As Dictionary(Of Integer, Dictionary(Of Integer, Single)) = Nothing
     Public ModelSkin_Bone As Dictionary(Of Integer, Dictionary(Of Integer, Single)) = Nothing
     Public ModelSMD As SMDLoader = Nothing
 
-    Public ObjLoader_sa_middle As ObjFileManager = Nothing
-    Public ObjLoader_sa_apply As ObjFileManager = Nothing
+    Public ObjLoader_middle As ObjFileManager = Nothing
+    Public ObjLoader_applied As ObjFileManager = Nothing
+    Friend NormalChangedBuffer As New HashSet(Of Integer)
 
-    Public Async Sub LoadMotionScript()
-        Dim path As String = "C:\Users\asdfg\Desktop\P104C\Tests\script_lp.txt"
-        Dim file As New FileStream(path, FileMode.Open)
-        Using sr As New StreamReader(file)
-            While Not sr.EndOfStream
-                Dim line As String = sr.ReadLine.Trim
-                If line.Length > 0 Then
-                    Dim segs As String() = line.Split(",")
-                    Dim rot As New Vector3(CSng(segs(3)), CSng(segs(4)), CSng(segs(2)))
-                    rot *= (Math.PI / 180.0)
-                    'reset sa
-                    ObjLoader_sa_apply = ObjLoader.Clone()
-                    ObjLoader_sa_middle = ObjLoader.Clone()
-                    'head bone rotation
-                    SetBoneRotate(33, rot)
+    Public InstantAnimationScript As AnimationScript = Nothing
 
-                    Form1.RunCmd("rasa")
+    ''' <summary>
+    ''' 即时混合所有MA和SA
+    ''' </summary>
+    Public Sub ApplyAllAnimation_Instant()
 
-                    Await Task.Delay(TimeSpan.FromMilliseconds(50))
-                End If
-            End While
-        End Using
-        file.Close()
-        file.Dispose()
+        ' MA不涉及旋转，因此可以直接在middle上累加
+        ' 这与SA不同
+        ' SA涉及旋转，因此需要以Applied作为起始位置参照，分别进行独立的变换，然后加权混合，不能直接在middle上累加
+        ' SA要在MA之后
+
+        If InstantAnimationScript Is Nothing Then Return
+        ' 清空middle为T-pose状态
+        ObjLoader_middle = ObjLoader.Clone()
+        NormalChangedBuffer.Clear()
+        ' 计算所有已改变的MA
+        For Each cmd_ma As KeyValuePair(Of String, Integer) In InstantAnimationScript.CommandMA
+            Dim target_ma As MorphAnimation = MorphAnimationRepository(cmd_ma.Key)
+            target_ma.CurrentFrame = cmd_ma.Value
+            target_ma.ApplyAnimation()
+        Next
+        ' 将应用MA后的middle作为参照网格
+        ObjLoader_applied = ObjLoader_middle.Clone
+        ' 计算应用SA后的骨骼，保存在 ModelSMD.AppliedBonePos 中
+        For Each cmd_sa As KeyValuePair(Of Integer, SMD_PosRot44) In InstantAnimationScript.CommandSA
+            SetBoneTranform_JointOnly(cmd_sa.Key, cmd_sa.Value.Position, cmd_sa.Value.Rotation)
+        Next
+        ' 对变化的部分计算蒙皮
+        For Each bone As KeyValuePair(Of Integer, SMD_PosRot44) In ModelSMD.AppliedBones_Delta
+            If bone.Value.Changed Then
+                ' 更新直接绑定的顶点
+                Dim bonePosW As Vector3 = ModelSMD.ReferenceBones_World(bone.Key).Position
+                Dim binding As Dictionary(Of Integer, Single) = ModelSkin_Bone(bone.Key)
+                For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
+                    Dim vtxIdx As Integer = bind_kvp.Key
+                    Dim weight As Single = bind_kvp.Value
+                    Dim srcVtxPos As Vector3 = ObjLoader_applied.VtxRepo(vtxIdx)
+                    Dim resDelta As Vector3 = Vector3.Zero
+                    Dim offset As Vector3 = srcVtxPos - bonePosW
+                    ' 绕关节旋转顶点
+                    Dim offset_rotate As New Matrix4x4 With {.M11 = offset.X, .M21 = offset.Y, .M31 = offset.Z}
+                    offset_rotate = bone.Value.Rotation * offset_rotate
+                    Dim rotateResult As New Vector3(offset_rotate.M11, offset_rotate.M21, offset_rotate.M31)
+                    Dim rotResultW As Vector3 = bonePosW + rotateResult
+                    Dim contributeRot As Vector3 = weight * (rotResultW - srcVtxPos)
+                    resDelta += contributeRot
+                    ' 随骨骼平移
+                    resDelta += (weight * bone.Value.Position)
+
+                    ' 应用顶点位置变化
+                    ObjLoader_middle.VtxRepo(vtxIdx) += resDelta
+
+                    ' 绕关节旋转法向量
+                    Dim normIdx As New List(Of Integer)
+                    Dim normBindingData As Integer() = ObjLoader.VtxNormTexBinding_Vtx(vtxIdx)
+                    If normBindingData.Count > 0 Then
+                        For i = 0 To normBindingData.Count - 1
+                            If i Mod 2 = 0 Then
+                                normIdx.Add(normBindingData(i))
+                            End If
+                        Next
+                    End If
+                    For Each nidx As Integer In normIdx
+                        Dim lastNorm As Vector3 = ObjLoader_applied.NormalRepo(nidx)
+                        Dim lastNorm44 As New Matrix4x4 With {.M11 = lastNorm.X, .M21 = lastNorm.Y, .M31 = lastNorm.Z}
+                        lastNorm44 = bone.Value.Rotation * lastNorm44
+                        Dim nowNorm As New Vector3(lastNorm44.M11, lastNorm44.M21, lastNorm44.M31)
+                        Dim contibuteNorm As Vector3 = weight * (nowNorm - lastNorm)
+                        ObjLoader_middle.NormalRepo(nidx) += contibuteNorm
+                        ' 标记法向量已变化
+                        NormalChangedBuffer.Add(nidx)
+                    Next
+                Next
+            End If
+        Next
+        ' 归一化变化后的法向量
+        For Each normIdx As Integer In NormalChangedBuffer
+            Dim middleNorm As Vector3 = ObjLoader_middle.NormalRepo(normIdx)
+            ObjLoader_middle.NormalRepo(normIdx) = Vector3.Normalize(middleNorm)
+        Next
+        ' 应用所有变化
+        ObjLoader_applied = ObjLoader_middle
 
     End Sub
 
-    Public Sub SetBoneRotate(boneIdx As Integer, rot As Vector3)
-        Dim cm As Matrix4x4 = ModelSMD.GetBoneRotation(ModelSMD.Nodes(boneIdx).ParentIdx)
-        Matrix4x4.Invert(cm, cm)
-        Dim x_axis As Vector3 = New Vector3(cm.M11, cm.M21, cm.M31)
-        Dim y_axis As Vector3 = New Vector3(cm.M12, cm.M22, cm.M32)
-        Dim z_axis As Vector3 = New Vector3(cm.M13, cm.M23, cm.M33)
+    ''' <summary>
+    ''' 将所有MA和SA还原为初始值
+    ''' </summary>
+    Public Sub ResetAllAnimation()
+        For Each ma As MorphAnimation In MorphAnimationRepository.Values
+            ma.CurrentFrame = 0
+        Next
+        Dim all_bones As Integer() = ModelSMD.AppliedBones_Delta.Keys.ToArray
+        For Each sa As Integer In all_bones
+            ModelSMD.AppliedBones_Delta(sa) = New SMD_PosRot44(Vector3.Zero, Matrix4x4.Identity)
+        Next
+    End Sub
+
+    Public Async Sub LoadMotionScript()
+        'TODO: Motion Script
+
+        'Dim path As String = "C:\Users\asdfg\Desktop\P104C\Tests\script_lp.txt"
+        'Dim file As New FileStream(path, FileMode.Open)
+        'Using sr As New StreamReader(file)
+        '    While Not sr.EndOfStream
+        '        Dim line As String = sr.ReadLine.Trim
+        '        If line.Length > 0 Then
+        '            Dim segs As String() = line.Split(",")
+        '            Dim rot As New Vector3(CSng(segs(3)), CSng(segs(4)), CSng(segs(2)))
+        '            rot *= (Math.PI / 180.0)
+        '            'reset sa
+        '            ObjLoader_applied = ObjLoader.Clone()
+        '            ObjLoader_middle = ObjLoader.Clone()
+        '            'head bone rotation
+        '            SetBoneRotate(33, rot)
+
+        '            Form1.RunCmd("rasa")
+
+        '            Await Task.Delay(TimeSpan.FromMilliseconds(50))
+        '        End If
+        '    End While
+        'End Using
+        'file.Close()
+        'file.Dispose()
+
+    End Sub
+
+    ''' <summary>
+    ''' 仅变换骨骼和子骨骼，不计算蒙皮
+    ''' </summary>
+    ''' <param name="boneIdx">骨骼索引</param>
+    Public Sub SetBoneTranform_JointOnly(boneIdx As Integer, deltaPos As Vector3, deltaRot As Matrix4x4)
+        Dim srcPosRot As SMD_PosRot44 = ModelSMD.AppliedBones_Delta(boneIdx)
+        Dim srcPosW As Vector3 = ModelSMD.ReferenceBones_World(boneIdx).Position + srcPosRot.Position
+        ' 旋转
+        Dim rotation As Matrix4x4 = deltaRot * srcPosRot.Rotation
+        ' 更新子骨骼节点位置
+        Dim children As List(Of Integer) = ModelSMD.GetChildBones(boneIdx)
+        For Each childIdx As Integer In children
+            Dim srcChildPos As Vector3 = ModelSMD.ReferenceBones_World(childIdx).Position + ModelSMD.AppliedBones_Delta(childIdx).Position
+            Dim offset As Vector3 = srcChildPos - srcPosW
+            Dim offset44 As New Matrix4x4 With {.M11 = offset.X, .M21 = offset.Y, .M31 = offset.Z}
+            offset44 = deltaRot * offset44
+            Dim childMove As New Vector3(offset44.M11, offset44.M21, offset44.M31)
+            ModelSMD.AppliedBones_Delta(childIdx) = New SMD_PosRot44(ModelSMD.AppliedBones_Delta(childIdx).Position + childMove, ModelSMD.AppliedBones_Delta(childIdx).Rotation)
+        Next
+        ' 移动
+        Dim location As Vector3 = srcPosRot.Position + deltaPos
+        ' 更新
+        Dim updatedPosRot As SMD_PosRot44 = New SMD_PosRot44(location, rotation) With {.Changed = True}
+        ModelSMD.AppliedBones_Delta(boneIdx) = updatedPosRot
+
+        ' 递归子骨骼
+        For Each childIdx As Integer In children
+            SetBoneTranform_JointOnly(childIdx, deltaPos, deltaRot)
+        Next
+    End Sub
+
+    Public Function EulerRotateUnderParent(boneIdx As Integer, rot As Vector3) As Matrix4x4
+        Dim parentIdx As Integer = ModelSMD.Nodes(boneIdx).ParentIdx
+        Dim parentRotW As Matrix4x4 = ModelSMD.AppliedBones_Delta(parentIdx).Rotation * ModelSMD.ReferenceBones_World(parentIdx).Rotation
+        Matrix4x4.Invert(parentRotW, parentRotW)
+
+        Dim x_axis As Vector3 = New Vector3(parentRotW.M11, parentRotW.M21, parentRotW.M31)
+        Dim y_axis As Vector3 = New Vector3(parentRotW.M12, parentRotW.M22, parentRotW.M32)
+        Dim z_axis As Vector3 = New Vector3(parentRotW.M13, parentRotW.M23, parentRotW.M33)
 
         Dim rotMatX As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(x_axis, -rot.X)
         Dim rotMatY As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(y_axis, -rot.Z)
         Dim rotMatZ As Matrix4x4 = Matrix4x4.CreateFromAxisAngle(z_axis, rot.Y)
         Dim rotMat As Matrix4x4 = rotMatY * rotMatZ * rotMatX
 
-        ' 更新直接绑定的顶点
-        Dim lastBonePosRepo As Dictionary(Of Integer, Vector3) = ModelSMD.AppliedBonePos
-        Dim lastBonePos As Vector3 = lastBonePosRepo(boneIdx)
-        Dim binding As Dictionary(Of Integer, Single) = ModelSkin_Bone(boneIdx)
-        For Each bind_kvp As KeyValuePair(Of Integer, Single) In binding
-            Dim vtxIdx As Integer = bind_kvp.Key
-            Dim weight As Single = bind_kvp.Value
-            Dim lastVtxPos As Vector3 = ObjLoader_sa_apply.VtxRepo(vtxIdx)
-            Dim offset As Vector3 = lastVtxPos - lastBonePos
-
-            Dim offr As New Matrix4x4 With {.M11 = offset.X, .M21 = offset.Y, .M31 = offset.Z}
-            offr = rotMat * offr
-            offset = New Vector3(offr.M11, offr.M21, offr.M31)
-
-            Dim fullVtxPos As Vector3 = lastBonePos + offset
-
-            Dim contibute As Vector3 = weight * (fullVtxPos - lastVtxPos)
-            ObjLoader_sa_middle.VtxRepo(vtxIdx) += contibute
-
-            Dim normIdx As New List(Of Integer)
-            Dim normCandi As Integer() = ObjLoader.VtxNormTexBinding_Vtx(vtxIdx)
-            If normCandi.Count > 0 Then
-                For i = 0 To normCandi.Count - 1
-                    If i Mod 2 = 0 Then
-                        normIdx.Add(normCandi(i))
-                    End If
-                Next
-            End If
-            For Each nidx As Integer In normIdx
-                Dim lastNorm As Vector3 = ObjLoader_sa_apply.NormalRepo(nidx)
-                Dim lastNorm44 As New Matrix4x4 With {.M11 = lastNorm.X, .M21 = lastNorm.Y, .M31 = lastNorm.Z}
-                lastNorm44 = rotMat * lastNorm44
-                Dim nowNorm As New Vector3(lastNorm44.M11, lastNorm44.M21, lastNorm44.M31)
-                Dim contibuteNorm As Vector3 = weight * (nowNorm - lastNorm)
-                ObjLoader_sa_middle.NormalRepo(nidx) += contibuteNorm
-            Next
-
-        Next
-        ' 更新子骨骼
-        Dim childBones As List(Of Integer) = ModelSMD.GetChildBone(boneIdx)
-        ' 子骨骼节点移动
-        'TODO
-        ' 子骨骼绑定顶点移动
-        'TODO
-
-    End Sub
-
-    Public Sub ApplySkinMiddle()
-        Dim normKeys As Integer() = ObjLoader_sa_middle.NormalRepo.Keys.ToArray
-        For Each normIdx As Integer In normKeys
-            Dim middleNorm As Vector3 = ObjLoader_sa_middle.NormalRepo(normIdx)
-            ObjLoader_sa_middle.NormalRepo(normIdx) = Vector3.Normalize(middleNorm)
-        Next
-
-        ObjLoader_sa_apply = ObjLoader_sa_middle
-        ObjLoader_sa_middle = ObjLoader_sa_middle.Clone
-    End Sub
+        Return rotMat
+    End Function
 
     Public Sub LinkSMDSkinToObj()
         ModelSkin_Vtx = New Dictionary(Of Integer, Dictionary(Of Integer, Single))
@@ -518,13 +600,10 @@ Public Class MorphAnimation
 
     Public CurrentFrame As Integer = 0
 
-    Public ParentBone As Integer = -1
-
 
     Public Function Left(Optional axis As Single = 0.0F) As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Left"
-        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.IndexType = 0 Then
                 If ObjLoader_ma_ref.VtxRepo(head.Index).X < axis Then
@@ -569,7 +648,6 @@ Public Class MorphAnimation
     Public Function Left2() As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Left"
-        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.Tag.EndsWith("R") Then
                 result.AddKeyFrame(head)
@@ -581,7 +659,6 @@ Public Class MorphAnimation
     Public Function Right(Optional axis As Single = 0.0F) As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Right"
-        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.IndexType = 0 Then
                 If ObjLoader_ma_ref.VtxRepo(head.Index).X > axis Then
@@ -626,7 +703,6 @@ Public Class MorphAnimation
     Public Function Right2() As MorphAnimation
         Dim result As New MorphAnimation
         result.AnimationName = Me.AnimationName & "_Right"
-        result.ParentBone = Me.ParentBone
         For Each head As KeyFrameVertex In Me.KeyFrames
             If head.Tag.EndsWith("L") Then
                 result.AddKeyFrame(head)
@@ -636,6 +712,8 @@ Public Class MorphAnimation
     End Function
 
     Public Sub ApplyAnimation()
+        ' MA不涉及旋转，因此可以直接在middle上累加
+        ' 这与SA不同
         For Each head As KeyFrameVertex In Me.KeyFrames
             Dim index As Integer = head.Index
             Dim idxType As Integer = head.IndexType
@@ -657,59 +735,61 @@ Public Class MorphAnimation
             If nextKf Is Nothing Then
                 If idxType = 0 Then
                     Dim pos_offset As Vector3 = tail.Position
-                    ObjLoader_ma_apply.VtxRepo(index) += pos_offset
+                    ObjLoader_middle.VtxRepo(index) += pos_offset
                 ElseIf idxType = 1 Then
                     Dim norm_offset As Vector3 = tail.Normal
-                    ObjLoader_ma_apply.NormalRepo(index) += norm_offset
+                    ObjLoader_middle.NormalRepo(index) += norm_offset
+                    ' cache normal changed
+                    NormalChangedBuffer.Add(index)
                 ElseIf idxType = 2 Then
                     Dim tex_offset As Vector2 = tail.TexCoord
-                    ObjLoader_ma_apply.TexCoordRepo(index) += tex_offset
+                    ObjLoader_middle.TexCoordRepo(index) += tex_offset
                 ElseIf idxType = 3 Then
                     Dim tail_zoom As Vector2 = tail.TexCoord / head.TexCoord
-                    Dim tex_move As Vector2 = ObjLoader_ma_apply.TexCoordRepo(index) - tail.TexCoordOrigin
-                    ObjLoader_ma_apply.TexCoordRepo(index) = tail.TexCoordOrigin + tail_zoom * tex_move
+                    Dim tex_move As Vector2 = ObjLoader_middle.TexCoordRepo(index) - tail.TexCoordOrigin
+                    ObjLoader_middle.TexCoordRepo(index) = tail.TexCoordOrigin + tail_zoom * tex_move
                 End If
             Else
                 Dim lastKf As KeyFrameVertex = nextKf.LastKeyFrame
                 If lastKf Is Nothing Then
                     If idxType = 0 Then
                         Dim pos_offset As Vector3 = nextKf.Position
-                        ObjLoader_ma_apply.VtxRepo(index) += pos_offset
+                        ObjLoader_middle.VtxRepo(index) += pos_offset
                     ElseIf idxType = 1 Then
                         Dim norm_offset As Vector3 = nextKf.Normal
-                        ObjLoader_ma_apply.NormalRepo(index) += norm_offset
+                        ObjLoader_middle.NormalRepo(index) += norm_offset
+                        ' cache normal changed
+                        NormalChangedBuffer.Add(index)
                     ElseIf idxType = 2 Then
                         Dim tex_offset As Vector2 = nextKf.TexCoord
-                        ObjLoader_ma_apply.TexCoordRepo(index) += tex_offset
+                        ObjLoader_middle.TexCoordRepo(index) += tex_offset
                     ElseIf idxType = 3 Then
                         Dim next_zoom As Vector2 = nextKf.TexCoord / head.TexCoord
-                        Dim tex_move As Vector2 = ObjLoader_ma_apply.TexCoordRepo(index) - nextKf.TexCoordOrigin
-                        ObjLoader_ma_apply.TexCoordRepo(index) = nextKf.TexCoordOrigin + next_zoom * tex_move
+                        Dim tex_move As Vector2 = ObjLoader_middle.TexCoordRepo(index) - nextKf.TexCoordOrigin
+                        ObjLoader_middle.TexCoordRepo(index) = nextKf.TexCoordOrigin + next_zoom * tex_move
                     End If
                 Else
                     Dim progress As Single = (CurrentFrame - lastKf.Frame) * 1.0 / (nextKf.Frame - lastKf.Frame)
                     If idxType = 0 Then
                         Dim pos_offset As Vector3 = lastKf.Position * (1.0 - progress) + nextKf.Position * progress
-                        ObjLoader_ma_apply.VtxRepo(index) += pos_offset
+                        ObjLoader_middle.VtxRepo(index) += pos_offset
                     ElseIf idxType = 1 Then
                         Dim norm_offset As Vector3 = lastKf.Normal * (1.0 - progress) + nextKf.Normal * progress
-                        ObjLoader_ma_apply.NormalRepo(index) += norm_offset
+                        ObjLoader_middle.NormalRepo(index) += norm_offset
+                        ' cache normal changed
+                        NormalChangedBuffer.Add(index)
                     ElseIf idxType = 2 Then
                         Dim tex_offset As Vector2 = lastKf.TexCoord * (1.0 - progress) + nextKf.TexCoord * progress
-                        ObjLoader_ma_apply.TexCoordRepo(index) += tex_offset
+                        ObjLoader_middle.TexCoordRepo(index) += tex_offset
                     ElseIf idxType = 3 Then
                         Dim tex_offset As Vector2 = lastKf.TexCoord * (1.0 - progress) + nextKf.TexCoord * progress
                         Dim tex_zoom As Vector2 = tex_offset / head.TexCoord
-                        Dim tex_move As Vector2 = ObjLoader_ma_apply.TexCoordRepo(index) - head.TexCoordOrigin
-                        ObjLoader_ma_apply.TexCoordRepo(index) = head.TexCoordOrigin + tex_zoom * tex_move
+                        Dim tex_move As Vector2 = ObjLoader_middle.TexCoordRepo(index) - head.TexCoordOrigin
+                        ObjLoader_middle.TexCoordRepo(index) = head.TexCoordOrigin + tex_zoom * tex_move
                     End If
                 End If
             End If
 
-            ' fix the normal length
-            If idxType = 1 Then
-                ObjLoader_ma_apply.NormalRepo(index) = Vector3.Normalize(ObjLoader_ma_apply.NormalRepo(index))
-            End If
         Next
     End Sub
 
@@ -774,7 +854,6 @@ Public Class MorphAnimation
 
         Dim root As XmlElement = xDoc.CreateElement("Project104R_MA")
         root.SetAttribute("Name", AnimationName)
-        root.SetAttribute("Parent", ParentBone)
         xDoc.AppendChild(root)
 
         For Each kf As KeyFrameVertex In KeyFrames
@@ -789,11 +868,6 @@ Public Class MorphAnimation
         xml.Load(path)
         Dim projectNode As XmlElement = xml.DocumentElement
         Me.AnimationName = projectNode.Attributes("Name").Value
-        If (projectNode.Attributes("Parent") Is Nothing) Then
-            Me.ParentBone = -1
-        Else
-            Me.ParentBone = CInt(projectNode.Attributes("Parent").Value)
-        End If
 
         For Each kfNode As XmlNode In projectNode.ChildNodes
             Dim kf As New KeyFrameVertex
@@ -802,5 +876,18 @@ Public Class MorphAnimation
         Next
 
     End Sub
+
+End Class
+
+Public Class AnimationScript
+    ''' <summary>
+    ''' MA值, (ma_idx, frame_val -> 0 to 100)
+    ''' </summary>
+    Public CommandMA As New Dictionary(Of String, Integer)
+
+    ''' <summary>
+    ''' SA变化值, (bone_idx, delta_pos_rot)
+    ''' </summary>
+    Public CommandSA As New Dictionary(Of Integer, SMD_PosRot44)
 
 End Class
