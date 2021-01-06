@@ -30,14 +30,29 @@ Module Rasterizer
     Public RasterizerRandomTexture As Texture2D
     Public RasterizerRandomTextureSRV As ShaderResourceView
 
-    Public Sub InitializeRasterizer()
+    Public RasterizerBackgroundColor As RawColor4
+    Public RasterizerEdgeWidth As Single = 0.02F
+    Public RasterizerEdgeEnable As Boolean = True
+
+
+    Public Sub InitializeRasterizer(Optional pip As Boolean = False)
         Spectator = New SpectatorCamera
         'AddHandler Spectator_Workspace.EveryFramePass, AddressOf PlayAnimation
-        With Spectator
-            .Resolve = New SharpDX.Vector2(800, 600)
-            .CameraFocus = New SharpDX.Vector2(.Resolve.X / 2, .Resolve.Y / 2)
-        End With
-        Spectator.InitializeDirectComponents(Form1.PBox)
+        If pip Then
+            With Spectator
+                .Resolve = New SharpDX.Vector2(200, 200)
+                .CameraFocus = New SharpDX.Vector2(.Resolve.X / 2, .Resolve.Y / 2)
+            End With
+            Spectator.InitializeDirectComponents(Form2)
+            RasterizerBackgroundColor = New RawColor4(1, 0, 1, 1)    ' rgba
+        Else
+            With Spectator
+                .Resolve = New SharpDX.Vector2(800, 600)
+                .CameraFocus = New SharpDX.Vector2(.Resolve.X / 2, .Resolve.Y / 2)
+            End With
+            Spectator.InitializeDirectComponents(Form1.PBox)
+            RasterizerBackgroundColor = New RawColor4(1, 1, 1, 1)    ' rgba
+        End If
         InitializePBoxCanvas()
         Spectator.CurrentRasterizerCamera.CalculateWVP()
 
@@ -487,7 +502,7 @@ Public Class RasterizerCamera
         Mat_Projection = Matrix.Identity
         With Mat_Projection
             .M11 = 1 / Math.Tan(FOV / 2)
-            .M22 = 1 * (ImageWidth * 1.0 / ImageHeight) / Math.Tan(FOV / 2)
+            .M22 = 1 * Spectator.ResolveRatio / Math.Tan(FOV / 2)
             .M33 = -((F_Near + F_Far) / (F_Far - F_Near))
             .M44 = 0
             .M43 = -1
@@ -518,7 +533,7 @@ Public Class RasterizerCamera
                                               u.Z, v.Z, n.Z, 0,
                                               t.X, t.Y, t.Z, 1)
         viewMat.Transpose()
-        Dim projMat As Matrix = Matrix.PerspectiveFovRH(Math.PI * 0.333, 1.333, 1, 50)
+        Dim projMat As Matrix = Matrix.PerspectiveFovRH(Math.PI * 0.333, Spectator.ResolveRatio, 1, 50)
         Return projMat * viewMat
     End Function
 
@@ -595,13 +610,6 @@ Public Class RasterizerCamera
         End SyncLock
     End Sub
 
-    Public Sub LoadMesh(polyIn As ModelPolyV)
-        SyncLock ContainerSyncLock
-            ' TODO
-
-        End SyncLock
-    End Sub
-
     Public Sub ClearMesh()
         SyncLock ContainerSyncLock
             For Each bundle As ModelPolyVBundle In Me.Container_Solid
@@ -675,6 +683,46 @@ Public Class RasterizerCamera
                 Next
             Next
             ' edge
+            If RasterizerEdgeEnable Then
+
+                For Each render_order As List(Of ModelPolyVBundle) In solid_trans
+                    For Each targetBundle As ModelPolyVBundle In render_order
+                        Dim textureIndex As String = targetBundle.TextureIndex
+                        If ObjLoader.MatRepo(textureIndex).MarkNoEdge Then
+                            Continue For
+                        End If
+                        Dim vertexBuffer As New Buffer(d3dDevice, targetBundle.Buffer, targetBundle.Buffer.Length, ResourceUsage.Default, BindFlags.VertexBuffer, CpuAccessFlags.None, ResourceOptionFlags.None, 0)
+
+                        With context
+                            .InputAssembler.InputLayout = DefaultInputLayout
+                            .InputAssembler.PrimitiveTopology = Direct3D.PrimitiveTopology.TriangleList
+                            .InputAssembler.SetVertexBuffers(0, New VertexBufferBinding(vertexBuffer, 32, 0))
+                            With DefaultEffect
+                                .GetVariableByName("MatWVP").AsMatrix().SetMatrix(Me.WVP)
+                                .GetVariableByName("ShaderTexture").AsShaderResource.SetResource(ImageResources(textureIndex).D3DShaderResourceView)
+                                .GetVariableByName("CameraPos").AsVector().Set(New RawVector3(CameraPosition.X, CameraPosition.Y, CameraPosition.Z))
+
+                                .GetTechniqueByIndex(0).GetPassByIndex(2).Apply(context)
+                            End With
+                            'render
+                            .Draw(targetBundle.Faces.Count * 3, 0)
+                        End With
+
+                        vertexBuffer.Dispose()
+                    Next
+                Next
+
+            End If
+        End SyncLock
+        context.OutputMerger.ResetTargets()
+
+    End Sub
+
+    Public Sub DrawSSDO1(d3dDevice As Direct3D11.Device1, context As Direct3D11.DeviceContext1)
+        context.OutputMerger.SetTargets(Spectator.GetDepthBufffer, Spectator.GetRenderTargetView)
+
+        SyncLock ContainerSyncLock
+            Dim solid_trans As List(Of ModelPolyVBundle)() = {Container_Solid, Container_Transparent}
             For Each render_order As List(Of ModelPolyVBundle) In solid_trans
                 For Each targetBundle As ModelPolyVBundle In render_order
                     Dim textureIndex As String = targetBundle.TextureIndex
@@ -687,7 +735,69 @@ Public Class RasterizerCamera
                         With DefaultEffect
                             .GetVariableByName("MatWVP").AsMatrix().SetMatrix(Me.WVP)
                             .GetVariableByName("ShaderTexture").AsShaderResource.SetResource(ImageResources(textureIndex).D3DShaderResourceView)
+                            .GetTechniqueByIndex(0).GetPassByIndex(0).Apply(context)
+                        End With
+                        'render
+                        .Draw(targetBundle.Faces.Count * 3, 0)
+                    End With
+
+                    vertexBuffer.Dispose()
+                Next
+            Next
+        End SyncLock
+        context.OutputMerger.ResetTargets()
+    End Sub
+
+    Public Sub DrawSSDO2(d3dDevice As Direct3D11.Device1, context As Direct3D11.DeviceContext1)
+
+        context.OutputMerger.SetTargets(Spectator.GetDepthBufffer, Spectator.GetRenderTargetView)
+
+        SyncLock ContainerSyncLock
+            Dim solid_trans As List(Of ModelPolyVBundle)() = {Container_Solid, Container_Transparent}
+            ' ssdo2
+            For Each render_order As List(Of ModelPolyVBundle) In solid_trans
+                For Each targetBundle As ModelPolyVBundle In render_order
+                    Dim textureIndex As String = targetBundle.TextureIndex
+                    Dim vertexBuffer As New Buffer(d3dDevice, targetBundle.Buffer, targetBundle.Buffer.Length, ResourceUsage.Default, BindFlags.VertexBuffer, CpuAccessFlags.None, ResourceOptionFlags.None, 0)
+
+                    With context
+                        .InputAssembler.InputLayout = DefaultInputLayout
+                        .InputAssembler.PrimitiveTopology = Direct3D.PrimitiveTopology.TriangleList
+                        .InputAssembler.SetVertexBuffers(0, New VertexBufferBinding(vertexBuffer, 32, 0))
+                        With DefaultEffect
+                            .GetVariableByName("MatWVP").AsMatrix().SetMatrix(Me.WVP)
+                            .GetVariableByName("ShaderTexture").AsShaderResource.SetResource(ImageResources(textureIndex).D3DShaderResourceView)
+                            .GetVariableByName("DepthTexture").AsShaderResource.SetResource(Spectator.D3DDepthStencilSRV)
+                            .GetVariableByName("IndirectDiffuseTexture").AsShaderResource.SetResource(Spectator.D3DSSDOFirstRoundSRV)
+                            .GetVariableByName("RandomTexture").AsShaderResource.SetResource(RasterizerRandomTextureSRV)
+
+                            .GetTechniqueByIndex(0).GetPassByIndex(1).Apply(context)
+                        End With
+                        'render
+                        .Draw(targetBundle.Faces.Count * 3, 0)
+                    End With
+
+                    vertexBuffer.Dispose()
+                Next
+            Next
+            ' edge
+            For Each render_order As List(Of ModelPolyVBundle) In solid_trans
+                For Each targetBundle As ModelPolyVBundle In render_order
+                    Dim textureIndex As String = targetBundle.TextureIndex
+                    If ObjLoader.MatRepo(textureIndex).MarkNoEdge Then
+                        Continue For
+                    End If
+                    Dim vertexBuffer As New Buffer(d3dDevice, targetBundle.Buffer, targetBundle.Buffer.Length, ResourceUsage.Default, BindFlags.VertexBuffer, CpuAccessFlags.None, ResourceOptionFlags.None, 0)
+
+                    With context
+                        .InputAssembler.InputLayout = DefaultInputLayout
+                        .InputAssembler.PrimitiveTopology = Direct3D.PrimitiveTopology.TriangleList
+                        .InputAssembler.SetVertexBuffers(0, New VertexBufferBinding(vertexBuffer, 32, 0))
+                        With DefaultEffect
+                            .GetVariableByName("MatWVP").AsMatrix().SetMatrix(Me.WVP)
+                            .GetVariableByName("ShaderTexture").AsShaderResource.SetResource(ImageResources(textureIndex).D3DShaderResourceView)
                             .GetVariableByName("CameraPos").AsVector().Set(New RawVector3(CameraPosition.X, CameraPosition.Y, CameraPosition.Z))
+                            .GetVariableByName("EdgeOffset").AsScalar().Set(RasterizerEdgeWidth)
 
                             .GetTechniqueByIndex(0).GetPassByIndex(2).Apply(context)
                         End With
@@ -868,6 +978,11 @@ Public Class SpectatorCamera
             Return New Mathematics.Interop.RawRectangleF(0, 0, Me.Resolve.X, Me.Resolve.Y)
         End Get
     End Property
+    Public ReadOnly Property ResolveRatio As Single
+        Get
+            Return Resolve.X / Resolve.Y
+        End Get
+    End Property
     ''' <summary>
     ''' 定义绘图委托，仅用于D2D
     ''' </summary>
@@ -885,11 +1000,12 @@ Public Class SpectatorCamera
 
     Private GlobalDevice As SharpDX.Direct3D11.Device1
     Private D3DContext As SharpDX.Direct3D11.DeviceContext1
+    Private GlobalSwapChain As DXGI.SwapChain1
     Private D3DRenderTargetView As SharpDX.Direct3D11.RenderTargetView
     Private D3DDepthStencilView As Direct3D11.DepthStencilView
-    Private GlobalSwapChain As DXGI.SwapChain1
-    Public D3DDepthStencilResource As Texture2D
     Public D3DDepthStencilSRV As ShaderResourceView
+
+    Public D3dDepthStencilResource As Texture2D
 
     ''' <summary>
     ''' Direct2D 1.1 画布对象
@@ -915,6 +1031,8 @@ Public Class SpectatorCamera
     Public D3DShadowMapSRV As ShaderResourceView
     Public D3DSSAOFirstRoundImage As Bitmap1
     Public D3DSSAOFirstRoundSRV As ShaderResourceView
+    Public D3DSSDOFirstRoundImage As Bitmap1
+    Public D3DSSDOFirstRoundSRV As ShaderResourceView
 
     Public CurrentRasterizerCamera As New RasterizerCamera
 
@@ -944,6 +1062,7 @@ Public Class SpectatorCamera
         Direct3D11.Device.CreateWithSwapChain(SharpDX.Direct3D.DriverType.Hardware, Direct3D11.DeviceCreationFlags.BgraSupport, {SharpDX.Direct3D.FeatureLevel.Level_11_1}, sc_description, tmpGlobalDevice, tmpGlobalSwapChain)
         If GlobalDevice IsNot Nothing Then GlobalDevice.Dispose()
         GlobalDevice = tmpGlobalDevice.QueryInterface(Of SharpDX.Direct3D11.Device1)()
+
         If GlobalSwapChain IsNot Nothing Then
             GlobalSwapChain.GetBackBuffer(Of DXGI.Surface)(0).Dispose()
             GlobalSwapChain.Dispose()
@@ -989,19 +1108,20 @@ Public Class SpectatorCamera
                 .CpuAccessFlags = CpuAccessFlags.None,
                 .OptionFlags = ResourceOptionFlags.None
             }
-        D3DDepthStencilResource = New Direct3D11.Texture2D(GlobalDevice, depthBuffer_description)
+
         Dim depthStencilView_description As DepthStencilViewDescription = New DepthStencilViewDescription With {
             .Format = DXGI.Format.D32_Float,
             .Dimension = DepthStencilViewDimension.Texture2D,
             .Texture2D = New DepthStencilViewDescription.Texture2DResource With {.MipSlice = 0}
         }
-        D3DDepthStencilView = New Direct3D11.DepthStencilView(GlobalDevice, D3DDepthStencilResource, depthStencilView_description)
+        D3dDepthStencilResource = New Direct3D11.Texture2D(GlobalDevice, depthBuffer_description)
+        D3DDepthStencilView = New Direct3D11.DepthStencilView(GlobalDevice, D3dDepthStencilResource, depthStencilView_description)
         Dim depthSRV_description As New ShaderResourceViewDescription With {
             .Format = DXGI.Format.R32_Float,
             .Dimension = Direct3D.ShaderResourceViewDimension.Texture2D,
             .Texture2D = New ShaderResourceViewDescription.Texture2DResource() With {.MipLevels = 1, .MostDetailedMip = 0}
         }
-        D3DDepthStencilSRV = New ShaderResourceView(GlobalDevice, D3DDepthStencilResource, depthSRV_description)
+        D3DDepthStencilSRV = New ShaderResourceView(GlobalDevice, D3dDepthStencilResource, depthSRV_description)
 
         D3DContext.OutputMerger.SetTargets(D3DDepthStencilView, D3DRenderTargetView)
 
@@ -1069,7 +1189,8 @@ Public Class SpectatorCamera
             D3DRenderImage.Dispose()
             BitmapBackgroundCanvas.Dispose()
             D3DShadowMapImage.Dispose()
-            D3DSSAOFirstRoundImage.dispose()
+            D3DSSAOFirstRoundImage.Dispose()
+            D3DSSDOFirstRoundImage.Dispose()
         End If
         D2DTarget = New Bitmap1(D2DContext, backBuffer, Properties)
         '-------image output---------
@@ -1080,6 +1201,7 @@ Public Class SpectatorCamera
         BitmapBackgroundCanvas = New Bitmap1(D2DContext, New Size2(Resolve.X, Resolve.Y), normalProp)
         D3DShadowMapImage = New Bitmap1(D2DContext, New Size2(Resolve.X, Resolve.Y), normalProp)
         D3DSSAOFirstRoundImage = New Bitmap1(D2DContext, New Size2(Resolve.X, Resolve.Y), normalProp)
+        D3DSSDOFirstRoundImage = New Bitmap1(D2DContext, New Size2(Resolve.X, Resolve.Y), normalProp)
 
         '-------load shaders-------
         Me.CurrentRasterizerCamera.HalfResolve = New Vector2(Resolve.X * 0.5, Resolve.Y * 0.5)
@@ -1121,9 +1243,8 @@ Public Class SpectatorCamera
             ''--------------------------------------------------------
 
             '----------draw SSAO--------------------
-            'TODO
             ' clear canvas and depth buffer
-            D3DContext.ClearRenderTargetView(D3DRenderTargetView, New Mathematics.Interop.RawColor4(1, 1, 1, 1))    ' rgba
+            D3DContext.ClearRenderTargetView(D3DRenderTargetView, New Mathematics.Interop.RawColor4(1, 1, 1, 1))
             D3DContext.ClearDepthStencilView(D3DDepthStencilView, Direct3D11.DepthStencilClearFlags.Depth, 1, 0)
 
             Me.CurrentRasterizerCamera.DrawSSAO1(GlobalDevice, D3DContext)
@@ -1140,12 +1261,36 @@ Public Class SpectatorCamera
             GlobalDevice.ImmediateContext.GenerateMips(D3DSSAOFirstRoundSRV)
             ssaoTexture.Dispose()
 
-            D3DContext.ClearRenderTargetView(D3DRenderTargetView, New Mathematics.Interop.RawColor4(1, 1, 1, 1))    ' rgba
+            D3DContext.ClearRenderTargetView(D3DRenderTargetView, RasterizerBackgroundColor)    ' rgba
             D3DContext.ClearDepthStencilView(D3DDepthStencilView, Direct3D11.DepthStencilClearFlags.Depth, 1, 0)
 
             Me.CurrentRasterizerCamera.DrawSSAO2(GlobalDevice, D3DContext)
-
             '--------------------------------------------------------
+
+            ''---------------draw SSDO---------------------------    不成功，第一轮的depth buffer有问题
+            '' clear canvas and depth buffer
+            'D3DContext.ClearRenderTargetView(D3DRenderTargetView, New Mathematics.Interop.RawColor4(1, 1, 1, 1))
+            'D3DContext.ClearDepthStencilView(D3DDepthStencilView, Direct3D11.DepthStencilClearFlags.Depth, 1, 0)
+
+            'Me.CurrentRasterizerCamera.DrawSSDO1(GlobalDevice, D3DContext)
+
+            'D3DSSDOFirstRoundImage.CopyFromBitmap(D2DTarget)
+            'Dim ssdoColorTexture As Texture2D = GetTextureFromBitmap1(GlobalDevice, D2DContext, D3DSSDOFirstRoundImage)
+            'Dim srvd As New Direct3D11.ShaderResourceViewDescription With {
+            '    .Format = ssdoColorTexture.Description.Format,
+            '    .Dimension = SharpDX.Direct3D.ShaderResourceViewDimension.Texture2D}
+            'srvd.Texture2D.MostDetailedMip = 0
+            'srvd.Texture2D.MipLevels = -1
+            'If D3DSSDOFirstRoundSRV IsNot Nothing Then D3DSSDOFirstRoundSRV.Dispose()
+            'D3DSSDOFirstRoundSRV = New Direct3D11.ShaderResourceView(GlobalDevice, ssdoColorTexture, srvd)
+            'GlobalDevice.ImmediateContext.GenerateMips(D3DSSDOFirstRoundSRV)
+            'ssdoColorTexture.Dispose()
+
+            'D3DContext.ClearRenderTargetView(D3DRenderTargetView, RasterizerBackgroundColor)    ' rgba
+            'D3DContext.ClearDepthStencilView(D3DDepthStencilView, Direct3D11.DepthStencilClearFlags.Depth, 1, 0)
+
+            'Me.CurrentRasterizerCamera.DrawSSDO2(GlobalDevice, D3DContext)
+            ''----------------------------------------------------
 
             '' clear canvas and depth buffer
             'D3DContext.ClearRenderTargetView(D3DRenderTargetView, New Mathematics.Interop.RawColor4(1, 1, 1, 1))
@@ -1249,7 +1394,6 @@ Public Class SpectatorCamera
             D3DContext.OutputMerger.Dispose()
             D3DContext.Dispose()
             D3DDepthStencilSRV.Dispose()
-            D3DDepthStencilResource.Dispose()
             D3DDepthStencilView.Resource.Dispose()
             D3DDepthStencilView.Dispose()
             D2DContext.Device.Dispose()

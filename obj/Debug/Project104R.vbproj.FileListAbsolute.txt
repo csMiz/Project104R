@@ -33,3 +33,4 @@ C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\SharpDX.DXGI.pdb
 C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\SharpDX.DXGI.xml
 C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\SharpDX.Mathematics.pdb
 C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\bin\Debug\SharpDX.Mathematics.xml
+C:\Users\asdfg\Desktop\P104R\Project104R\Project104R\obj\Debug\Project104R.Form2.resources

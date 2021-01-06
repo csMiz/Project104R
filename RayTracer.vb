@@ -12,8 +12,8 @@ Module RayTracer
     Public BVHRepository As BVH = Nothing
     Public ExtrudedBVHRepository As BVH = Nothing
 
-    Public CameraRotation As New Vector3(0, 0, 0)
-    Public CameraPosition As New Vector3(0, 30, 12)  '0,2,20
+    Public CameraRotation As New Vector3(0.05, 0, 0)
+    Public CameraPosition As New Vector3(0, 33, 12)  '0,2,20
 
     Public F_ImageWidth As Single = 1.0F
     Public F_ImageHeight As Single = 0.75F

@@ -81,14 +81,16 @@ Module Animation
                                 normIdx.Add(normBindingData(i))
                             End If
                         Next
+                    Else
+                        Throw New Exception("no match normal")
                     End If
                     For Each nidx As Integer In normIdx
                         Dim lastNorm As Vector3 = ObjLoader_applied.NormalRepo(nidx)
                         Dim lastNorm44 As New Matrix4x4 With {.M11 = lastNorm.X, .M21 = lastNorm.Y, .M31 = lastNorm.Z}
                         lastNorm44 = bone.Value.Rotation * lastNorm44
                         Dim nowNorm As New Vector3(lastNorm44.M11, lastNorm44.M21, lastNorm44.M31)
-                        Dim contibuteNorm As Vector3 = weight * (nowNorm - lastNorm)
-                        ObjLoader_middle.NormalRepo(nidx) += contibuteNorm
+                        Dim contributeNorm As Vector3 = weight * (nowNorm - lastNorm)
+                        ObjLoader_middle.NormalRepo(nidx) += contributeNorm
                         ' 标记法向量已变化
                         NormalChangedBuffer.Add(nidx)
                     Next
@@ -101,7 +103,7 @@ Module Animation
             ObjLoader_middle.NormalRepo(normIdx) = Vector3.Normalize(middleNorm)
         Next
         ' 应用所有变化
-        ObjLoader_applied = ObjLoader_middle
+        ObjLoader_applied = ObjLoader_middle    '.Clone()
 
     End Sub
 
@@ -118,7 +120,58 @@ Module Animation
         Next
     End Sub
 
-    Public Async Sub LoadMotionScript()
+    Public Sub ApplyMotionScript(poseDataIn As Single())
+
+        If poseDataIn(0) > 0.5 Then    ' has face
+            InstantAnimationScript = New AnimationScript
+
+            Dim px As Single = poseDataIn(1)
+            Dim py As Single = poseDataIn(2)
+            Dim pr As Single = poseDataIn(3)
+            Dim head_pos_offset As New Vector2(px - 0.5, py - 0.5)
+            Dim neck_r As Single = head_pos_offset.X
+            InstantAnimationScript.CommandSA(32) = New SMD_PosRot44(Vector3.Zero, EulerRotateUnderParent(32, New Vector3(0, neck_r, 0)))
+
+            Dim rx As Single = poseDataIn(4) - 0.087
+            Dim ry As Single = poseDataIn(5)
+            Dim rz As Single = poseDataIn(6)
+            InstantAnimationScript.CommandSA(33) = New SMD_PosRot44(Vector3.Zero, EulerRotateUnderParent(33, New Vector3(rx, ry, rz)))
+
+            InstantAnimationScript.CommandSA(35) = New SMD_PosRot44(Vector3.Zero, EulerRotateUnderParent(35, New Vector3(0, 0, -1.0)))
+            InstantAnimationScript.CommandSA(38) = New SMD_PosRot44(Vector3.Zero, EulerRotateUnderParent(38, New Vector3(0, 0, -1.0)))
+
+            Dim blink_val As Single = poseDataIn(7)
+            If blink_val < 0.01 Then blink_val = 0.01
+            blink_val = blink_val * blink_val
+            InstantAnimationScript.CommandMA("Blink") = CInt(blink_val * 100)
+
+            Dim mouth_a_val As Single = poseDataIn(9)
+            If mouth_a_val < 0.01 Then mouth_a_val = 0.01
+            Dim smile_val As Single = poseDataIn(8)
+            If smile_val < 0.01 Then smile_val = 0.01
+            If mouth_a_val >= smile_val Then
+                mouth_a_val = mouth_a_val * mouth_a_val
+                InstantAnimationScript.CommandMA("MouthA") = CInt(mouth_a_val * 100)
+            Else
+                smile_val = smile_val * smile_val
+                InstantAnimationScript.CommandMA("MouthI") = CInt(smile_val * 100)
+            End If
+
+
+            Dim serious_val As Single = poseDataIn(10)
+            If serious_val < 0.01 Then serious_val = 0.01
+            serious_val = serious_val * 0.5
+            InstantAnimationScript.CommandMA("EyeShrink") = CInt(serious_val * 100)
+
+        End If
+        ResetAllAnimation()
+        If Spectator Is Nothing Then
+            InitializeRasterizer()
+        End If
+        ApplyAllAnimation_Instant()
+        RasterizerUpdateModels_Animation()
+        Spectator.PaintImage()
+
         'TODO: Motion Script
 
         'Dim path As String = "C:\Users\asdfg\Desktop\P104C\Tests\script_lp.txt"
@@ -164,6 +217,7 @@ Module Animation
             Dim offset44 As New Matrix4x4 With {.M11 = offset.X, .M21 = offset.Y, .M31 = offset.Z}
             offset44 = deltaRot * offset44
             Dim childMove As New Vector3(offset44.M11, offset44.M21, offset44.M31)
+            childMove = childMove - offset
             ModelSMD.AppliedBones_Delta(childIdx) = New SMD_PosRot44(ModelSMD.AppliedBones_Delta(childIdx).Position + childMove, ModelSMD.AppliedBones_Delta(childIdx).Rotation)
         Next
         ' 移动
@@ -334,9 +388,9 @@ Module Animation
 
             For k = 0 To ModelRepository.Count - 1
                 Dim targetObj_old As Model = ModelRepository(k)
-                Dim objFilter As String() = {"body_f", "head_f_eyeR_eyelashR", "head_f_eyeR_eyelidR", "head_f_eyeL_eyelashL", "head_f_eyeL_eyelidL"}
+                'Dim objFilter As String() = {"body_f", "head_f_eyeR_eyelashR", "head_f_eyeR_eyelidR", "head_f_eyeL_eyelashL", "head_f_eyeL_eyelidL"}
                 'Dim objFilter As String() = {"head_f_IrisR_eyeR", "head_f_IrisL_eyeL"}
-                If Not objFilter.Contains(targetObj_old.Name) Then Continue For
+                'If Not objFilter.Contains(targetObj_old.Name) Then Continue For
 
                 Dim targetObj_new As Model = secondModel(k)
                 For Each i In targetObj_old.Mesh.Keys
@@ -347,7 +401,7 @@ Module Animation
                         Dim vtx_new As Vector3 = ObjLoader.VtxRepo(poly_new.VtxIdx(j))
                         Dim vtx_offset As Vector3 = vtx_new - vtx_old
 
-                        If vtx_offset.Length > 0 Then
+                        If vtx_offset.Length > 0.001 Then
                             Dim kf0 As New KeyFrameVertex
                             With kf0
                                 .Frame = 0
@@ -374,7 +428,7 @@ Module Animation
                         'Dim nor_old_q As Quaternion = Quaternion.CreateFromYawPitchRoll()    '正确的插值不应该使用Lerp（线性插值）,而应该使用Slerp（球面插值），球面插值需要四元数
                         Dim nor_offset As Vector3 = nor_new - nor_old
 
-                        If nor_offset.Length > 0 Then
+                        If nor_offset.Length > 0.001 Then
                             Dim kf0 As New KeyFrameVertex
                             With kf0
                                 .Frame = 0
@@ -400,7 +454,7 @@ Module Animation
                         Dim tex_new As Vector2 = ObjLoader.TexCoordRepo(poly_new.TexCoordIdx(j))
                         Dim tex_offset As Vector2 = tex_new - tex_old
 
-                        If tex_offset.Length > 0 Then
+                        If tex_offset.Length > 0.0001 Then
                             Dim kf0 As New KeyFrameVertex
                             With kf0
                                 .Frame = 0

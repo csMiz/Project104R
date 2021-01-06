@@ -34,26 +34,6 @@ Public Class Form1
         '    .Strength = 50000.0F,
         '    .LightMaterial = "s_light2"})
 
-        'Dim lightPos As SharpDX.Vector3 = New SharpDX.Vector3(200, 30, 200)
-        'Dim targetPos As SharpDX.Vector3 = New SharpDX.Vector3(0, 30, 0)
-        'Dim lightWVP As SharpDX.Matrix = RasterizerCamera.CalculateWVP_LookAt(lightPos, targetPos)
-        'Dim inputMat As SharpDX.Matrix = New SharpDX.Matrix(0)
-        'With inputMat
-        '    .M11 = 0
-        '    .M21 = 30
-        '    .M31 = 0
-        '    .M41 = 1
-        'End With
-        'Dim resultMat As SharpDX.Matrix = lightWVP * inputMat
-        'Console.WriteLine(resultMat.M11 & "  " & resultMat.M21 & "  " & resultMat.M31 & "  " & resultMat.M41)
-
-        'Dim lastv As New Vector3(0, 0.174, 16.674)
-        'Dim vec As New Vector3(1.84, 0, 0)
-        'Dim mat As Matrix4x4 = Matrix4x4.CreateFromYawPitchRoll(1.57, 0, 0)
-        'Matrix4x4.Invert(mat, mat)
-        'Dim r As Vector3 = Vector3.Transform(vec, mat)
-        'r += lastv
-        'MsgBox(r.ToString)
 
     End Sub
 
@@ -118,7 +98,7 @@ Public Class Form1
                         ModelSMD.LoadSMD(ofd.FileName)
                         Dim tEnd As Date = DateTime.Now
                         PostMsg("共用时: " & (tEnd - TimerStartAt).TotalSeconds & "秒")
-                        RunCmd("resetsa")
+                        RunCmd("reseta")
                     End If
                 Case "smdlink"
                     TimerStartAt = DateTime.Now
@@ -185,7 +165,26 @@ Public Class Form1
                 Case "client"
                     SendTCPMessage()
                 Case "script"
-                    LoadMotionScript()
+                '    LoadMotionScript()
+                Case "live"
+                    ModelRepository.AddRange(ObjLoader.ReadObject("C:\Users\asdfg\Desktop\rtTest\va21_max.obj", 1.0F))
+                    ModelSMD = New SMDLoader
+                    ModelSMD.LoadSMD("C:\Users\asdfg\Desktop\rtTest\va21_05.SMD")
+                    RunCmd("reseta")
+                    RunCmd("loadlink")
+                    RunCmd("loadmas")
+                    RunCmd("insta")
+
+                    Dim renderTimer As New Task(AddressOf RenderQueueLoop)
+                    renderTimer.Start()
+
+                    ImageHeight = 200
+                    ImageWidth = 200
+                    RasterizerEdgeEnable = False
+                    Form2.Show()
+                    If Spectator Is Nothing Then
+                        InitializeRasterizer(True)
+                    End If
                 Case "test"
                     For i = 0 To 100
                         'ObjLoader_ma_apply = ObjLoader_ma_ref.Clone()
